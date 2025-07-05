@@ -632,6 +632,218 @@ After creating this file, make it executable:
 chmod +x vibe-check/scripts/populate_master.sh
 ```
 
+#### 2.8 Create `vibe-check/scripts/run_single_review.sh`
+
+Create this executable script with the following content:
+
+```bash
+#!/bin/bash
+
+# Vibe-Check Single Review Runner
+# This script runs a single file review using Claude Code SDK
+# It reads the REVIEWER_INSTRUCTIONS.md and executes one review cycle
+
+set -euo pipefail
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Configuration
+VIBE_CHECK_DIR="vibe-check"
+REVIEWER_INSTRUCTIONS="$VIBE_CHECK_DIR/prompts/REVIEWER_INSTRUCTIONS.md"
+MASTER_FILE="$VIBE_CHECK_DIR/reviews/_MASTER.json"
+LOG_DIR="$VIBE_CHECK_DIR/logs"
+
+# Create logs directory if it doesn't exist
+mkdir -p "$LOG_DIR"
+
+# Generate timestamp for this run
+TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+LOG_FILE="$LOG_DIR/review_${TIMESTAMP}.log"
+
+# Function to print colored messages
+print_status() {
+    local color=$1
+    local message=$2
+    echo -e "${color}${message}${NC}"
+}
+
+# Check if Claude Code is installed
+if ! command -v claude &> /dev/null; then
+    print_status "$RED" "Error: Claude Code CLI not found!"
+    echo "Please install it with: npm install -g @anthropic-ai/claude-code"
+    exit 1
+fi
+
+# Check authentication method
+if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
+    print_status "$GREEN" "✓ Using Anthropic API key from environment"
+else
+    print_status "$YELLOW" "No ANTHROPIC_API_KEY found - will attempt to use Claude subscription"
+    echo "Make sure you're signed into Claude CLI"
+fi
+
+# Check if vibe-check structure exists
+if [[ ! -f "$REVIEWER_INSTRUCTIONS" ]]; then
+    print_status "$RED" "Error: $REVIEWER_INSTRUCTIONS not found!"
+    echo "Please run the vibe-check setup first."
+    exit 1
+fi
+
+if [[ ! -f "$MASTER_FILE" ]]; then
+    print_status "$RED" "Error: $MASTER_FILE not found!"
+    echo "Please run populate_master.sh first."
+    exit 1
+fi
+
+# Check if there are any files to review
+FILES_TO_REVIEW=$(python3 -c "
+import json
+with open('$MASTER_FILE', 'r') as f:
+    data = json.load(f)
+    unreviewed = [f for f, info in data['files'].items() if info['status'] == 'not_reviewed']
+    print(len(unreviewed))
+")
+
+if [[ "$FILES_TO_REVIEW" -eq 0 ]]; then
+    print_status "$GREEN" "All files have been reviewed! No files left to process."
+    exit 0
+fi
+
+print_status "$BLUE" "=== Starting Vibe-Check Single Review ==="
+print_status "$YELLOW" "Files remaining to review: $FILES_TO_REVIEW"
+print_status "$YELLOW" "Logging to: $LOG_FILE"
+print_status "$YELLOW" "Permission mode: Auto-accepting file edits"
+echo ""
+
+# Read the reviewer instructions
+INSTRUCTIONS=$(cat "$REVIEWER_INSTRUCTIONS")
+
+# Create the prompt for Claude
+PROMPT="You have access to a vibe-check directory at path 'vibe-check/' containing review artifacts.
+
+Please follow these instructions exactly:
+
+$INSTRUCTIONS
+
+Start by reading vibe-check/reviews/_MASTER.json to find the next unreviewed file and begin the review process."
+
+# Run Claude with the review instructions
+# Using --print for non-interactive mode
+# Using text output format for direct visibility
+# Tee to both stdout and log file for visibility and record keeping
+print_status "$BLUE" "Launching Claude Code for review..."
+echo "----------------------------------------"
+
+# Execute Claude and capture exit code
+# Use stream-json output to get both real-time output and cost information
+# Use acceptEdits permission mode to allow file modifications without prompts
+set +e
+claude --print "$PROMPT" \
+    --output-format stream-json \
+    --permission-mode acceptEdits \
+    --verbose 2>&1 | tee "$LOG_FILE" | while IFS= read -r line; do
+    # Try to parse as JSON - be silent about non-JSON lines
+    if echo "$line" | python3 -c "import json, sys; json.load(sys.stdin)" 2>/dev/null; then
+        # It's valid JSON - extract and display only assistant text messages
+        OUTPUT=$(echo "$line" | python3 -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+    if data.get('type') == 'assistant':
+        # Extract text content from assistant messages
+        msg = data.get('message', {})
+        content = msg.get('content', [])
+        for item in content:
+            if item.get('type') == 'text':
+                text = item.get('text', '').strip()
+                if text:  # Only print non-empty text
+                    print(text)
+                    print('---')  # Add separator after each response
+    elif data.get('type') == 'result':
+        # Don't print the result JSON here - we'll handle it later
+        pass
+except:
+    pass  # Silently ignore any parsing errors
+" 2>/dev/null || true)
+        
+        if [[ -n "$OUTPUT" ]]; then
+            echo "$OUTPUT"
+        fi
+    fi
+    # Removed the else clause - don't display non-JSON lines
+done
+
+CLAUDE_EXIT_CODE=${PIPESTATUS[0]}
+set -e
+
+echo "----------------------------------------"
+
+# Check exit code
+if [[ $CLAUDE_EXIT_CODE -eq 0 ]]; then
+    print_status "$GREEN" "✓ Review completed successfully!"
+    
+    # Try to extract cost information from the result JSON in log file
+    # Look for the last line with type: "result" in the log
+    RESULT_JSON=$(grep '"type": *"result"' "$LOG_FILE" 2>/dev/null | tail -1 || echo "")
+    
+    if [[ -n "$RESULT_JSON" ]]; then
+        COST_INFO=$(echo "$RESULT_JSON" | python3 -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+    cost = data.get('total_cost_usd', 'N/A')
+    duration = data.get('duration_ms', 'N/A')
+    turns = data.get('num_turns', 'N/A')
+    
+    if cost != 'N/A':
+        print(f'Cost: \${cost:.4f} USD')
+    else:
+        print('Cost: Not available')
+    
+    if duration != 'N/A':
+        duration_sec = duration / 1000
+        print(f'Duration: {duration_sec:.1f} seconds')
+    
+    if turns != 'N/A':
+        print(f'Turns: {turns}')
+except:
+    print('Cost information not available')
+" 2>/dev/null || echo "Cost information not available")
+        
+        echo ""
+        print_status "$BLUE" "=== Execution Summary ==="
+        echo "$COST_INFO"
+    fi
+    
+    # Check how many files are left
+    REMAINING=$(python3 -c "
+import json
+with open('$MASTER_FILE', 'r') as f:
+    data = json.load(f)
+    unreviewed = [f for f, info in data['files'].items() if info['status'] == 'not_reviewed']
+    print(len(unreviewed))
+")
+    
+    echo ""
+    print_status "$YELLOW" "Files remaining to review: $REMAINING"
+    exit 0
+else
+    print_status "$RED" "✗ Review failed with exit code: $CLAUDE_EXIT_CODE"
+    print_status "$RED" "Check the log file for details: $LOG_FILE"
+    exit $CLAUDE_EXIT_CODE
+fi
+```
+
+After creating this file, make it executable:
+```bash
+chmod +x vibe-check/scripts/run_single_review.sh
+```
+
 ### 3. Verification Checklist
 
 After creating all files, verify:
@@ -649,6 +861,7 @@ After creating all files, verify:
 - [ ] `vibe-check/reviews/system/METRICS_SUMMARY.md` exists with metric table
 - [ ] `vibe-check/reviews/modules/README.md` exists with navigation guide
 - [ ] `vibe-check/scripts/populate_master.sh` exists and is executable
+- [ ] `vibe-check/scripts/run_single_review.sh` exists and is executable
 
 ### 4. Next Steps
 
@@ -657,9 +870,24 @@ Once this structure is in place:
 1. Run `./vibe-check/scripts/populate_master.sh` to scan the repository and populate `vibe-check/reviews/_MASTER.json` with all source files
    - Use `FORCE_NO_GIT=1 ./vibe-check/scripts/populate_master.sh` if not using git
 2. Review the generated master list to ensure all expected files are included
-3. Begin the review process by providing the REVIEWER_INSTRUCTIONS.md to an AI agent
-4. The AI will process files one at a time, updating the master list and creating review artifacts
-5. Monitor progress by checking the status field in `_MASTER.json`
+3. Run a single file review:
+   ```bash
+   # With API key
+   export ANTHROPIC_API_KEY="your-api-key"
+   ./vibe-check/scripts/run_single_review.sh
+   
+   # Or with Claude subscription (requires claude login)
+   ./vibe-check/scripts/run_single_review.sh
+   ```
+4. The script will:
+   - Find the next unreviewed file automatically
+   - Show Claude's analysis in real-time with separators
+   - Save full logs to `vibe-check/logs/`
+   - Update `_MASTER.json` with scores and status
+   - Create review markdown in `vibe-check/reviews/modules/`
+   - Display cost and execution summary
+5. Repeat step 3 to review more files, or use batch processing scripts
+6. Monitor progress by checking the status field in `_MASTER.json`
 
 ### 5. Important Notes
 

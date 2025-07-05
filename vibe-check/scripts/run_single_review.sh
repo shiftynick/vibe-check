@@ -108,32 +108,35 @@ claude --print "$PROMPT" \
     --output-format stream-json \
     --permission-mode acceptEdits \
     --verbose 2>&1 | tee "$LOG_FILE" | while IFS= read -r line; do
-    # Try to parse as JSON
-    if echo "$line" | python3 -c "import json, sys; data=json.load(sys.stdin); sys.exit(0 if data.get('type') in ['assistant', 'result'] else 1)" 2>/dev/null; then
-        # Extract and display assistant messages
+    # Try to parse as JSON - be silent about non-JSON lines
+    if echo "$line" | python3 -c "import json, sys; json.load(sys.stdin)" 2>/dev/null; then
+        # It's valid JSON - extract and display only assistant text messages
         OUTPUT=$(echo "$line" | python3 -c "
 import json, sys
-data = json.load(sys.stdin)
-if data.get('type') == 'assistant':
-    # Extract text content from assistant messages
-    msg = data.get('message', {})
-    content = msg.get('content', [])
-    for item in content:
-        if item.get('type') == 'text':
-            print(item.get('text', ''))
-elif data.get('type') == 'result':
-    # Store result for later - need to escape the JSON string
-    json_str = json.dumps(data)
-    print(f'__RESULT_JSON__:{json_str}')
-" 2>/dev/null || echo "")
+try:
+    data = json.load(sys.stdin)
+    if data.get('type') == 'assistant':
+        # Extract text content from assistant messages
+        msg = data.get('message', {})
+        content = msg.get('content', [])
+        for item in content:
+            if item.get('type') == 'text':
+                text = item.get('text', '').strip()
+                if text:  # Only print non-empty text
+                    print(text)
+                    print('---')  # Add separator after each response
+    elif data.get('type') == 'result':
+        # Don't print the result JSON here - we'll handle it later
+        pass
+except:
+    pass  # Silently ignore any parsing errors
+" 2>/dev/null || true)
         
         if [[ -n "$OUTPUT" ]]; then
             echo "$OUTPUT"
         fi
-    else
-        # Not JSON, just display it
-        echo "$line"
     fi
+    # Removed the else clause - don't display non-JSON lines
 done
 
 CLAUDE_EXIT_CODE=${PIPESTATUS[0]}
@@ -146,7 +149,8 @@ if [[ $CLAUDE_EXIT_CODE -eq 0 ]]; then
     print_status "$GREEN" "✓ Review completed successfully!"
     
     # Try to extract cost information from the result JSON in log file
-    RESULT_JSON=$(grep "__RESULT_JSON__:" "$LOG_FILE" 2>/dev/null | sed 's/__RESULT_JSON__://' || echo "")
+    # Look for the last line with type: "result" in the log
+    RESULT_JSON=$(grep '"type": *"result"' "$LOG_FILE" 2>/dev/null | tail -1 || echo "")
     
     if [[ -n "$RESULT_JSON" ]]; then
         COST_INFO=$(echo "$RESULT_JSON" | python3 -c "
@@ -158,7 +162,7 @@ try:
     turns = data.get('num_turns', 'N/A')
     
     if cost != 'N/A':
-        print(f'Cost: \\${cost:.4f} USD')
+        print(f'Cost: \${cost:.4f} USD')
     else:
         print('Cost: Not available')
     
