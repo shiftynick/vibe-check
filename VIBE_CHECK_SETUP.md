@@ -11,6 +11,7 @@ Create the following directory hierarchy within a new `vibe-check` folder:
 ```
 vibe-check/
 ├── prompts/
+├── scripts/
 └── reviews/
     ├── modules/
     └── system/
@@ -18,27 +19,32 @@ vibe-check/
 
 ### 2. Create Initial Files
 
-#### 2.1 Create `vibe-check/reviews/_MASTER.md`
+#### 2.1 Create `vibe-check/reviews/_MASTER.json`
 
 Create this file with the following content:
 
-```markdown
-# Vibe-Check Master Review Ledger
-
-This is the single source of truth for all code review progress.
-
-## Review Status Legend
-- ❌ = Not reviewed
-- 🔒 = In progress
-- ✅ = Completed
-- 🔄 = Needs update (source changed)
-
-## Review Progress
-
-| File Path | Lang | LOC | Reviewed? | Review Date | Reviewer | Security | Perf | Maint | Consistency | Best Pract | Code Smell | Open Issues | Dep Count |
-|-----------|------|-----|-----------|-------------|----------|----------|------|-------|-------------|------------|------------|-------------|-----------|
-
-*Note: Scores are 1-5 (5 = excellent). This table will be populated as files are reviewed.*
+```json
+{
+  "metadata": {
+    "version": "1.0",
+    "description": "Vibe-Check Master Review Ledger - Single source of truth for all code review progress",
+    "generated": "",
+    "total_files": 0,
+    "total_loc": 0,
+    "status_legend": {
+      "not_reviewed": "File has not been reviewed yet",
+      "in_progress": "Review is currently in progress",
+      "completed": "Review has been completed",
+      "needs_update": "Source file changed, review needs update"
+    },
+    "score_range": {
+      "min": 1,
+      "max": 5,
+      "description": "1 = Critical issues, 5 = Excellent"
+    }
+  },
+  "files": {}
+}
 ```
 
 #### 2.2 Create `vibe-check/reviews/_DEPENDENCIES.yml`
@@ -168,15 +174,15 @@ You are the File Reviewer AI. Your task is to analyze EXACTLY ONE source file an
 ## Outputs
 
 1. A complete review markdown file at `vibe-check/reviews/modules/.../[filename].md`
-2. Updated row in `vibe-check/reviews/_MASTER.md` with scores and metadata
+2. Updated entry in `vibe-check/reviews/_MASTER.json` with scores and metadata
 3. Updated dependencies in `vibe-check/reviews/_DEPENDENCIES.yml`
 
 ## Precise Algorithm to Follow
 
 ### Step 1: Lock the File
-- Open `vibe-check/reviews/_MASTER.md`
-- Find the row for FILE_PATH
-- Change the "Reviewed?" column from ❌ to 🔒 (in-progress)
+- Open `vibe-check/reviews/_MASTER.json`
+- Find the entry for FILE_PATH in the "files" object
+- Change the "status" from "not_reviewed" to "in_progress"
 - Save the file
 
 ### Step 2: Analyze the Source File
@@ -304,16 +310,15 @@ reverse_dependencies: []
 \`\`\`
 
 ### Step 7: Update Master Ledger
-- Reopen `vibe-check/reviews/_MASTER.md`
-- Find the FILE_PATH row
-- Update columns:
-  - Reviewed? = ✅
-  - Review Date = TODAY
-  - Reviewer = Your AI identifier
-  - All metric scores (1-5)
-  - Open Issues = total count
-  - Dep Count = number of dependencies
-- Remove the 🔒 lock
+- Reopen `vibe-check/reviews/_MASTER.json`
+- Find the FILE_PATH entry in the "files" object
+- Update fields:
+  - status = "completed"
+  - review_date = TODAY (ISO format)
+  - reviewer = Your AI identifier
+  - scores = object with all metric scores (1-5)
+  - open_issues = total count
+  - dependency_count = number of dependencies
 - Save the file
 
 ### Step 8: Update Dependencies
@@ -349,9 +354,282 @@ reverse_dependencies: []
 ## Error Handling
 
 If you encounter any errors:
-- File not found: Update _MASTER.md to mark as "NOT_FOUND" and stop
+- File not found: Update _MASTER.json to mark status as "not_found" and stop
 - Cannot parse: Score all metrics as 1 with explanation in summary
 - Lock conflict: Wait and retry once, then report conflict
+```
+
+#### 2.7 Create `vibe-check/scripts/populate_master.sh`
+
+Create this executable script with the following content:
+
+```bash
+#!/bin/bash
+
+# Vibe-Check Master List Population Script
+# This script scans the repository and populates the initial _MASTER.json file
+# It respects .gitignore patterns and excludes the vibe-check directory itself
+
+set -euo pipefail
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+# Configuration
+VIBE_CHECK_DIR="vibe-check"
+MASTER_FILE="$VIBE_CHECK_DIR/reviews/_MASTER.json"
+
+# Common source file extensions to include
+SOURCE_EXTENSIONS=(
+    "js" "jsx" "ts" "tsx"           # JavaScript/TypeScript
+    "py" "pyw"                      # Python
+    "java" "kt" "kts"               # Java/Kotlin
+    "c" "cpp" "cc" "cxx" "h" "hpp"  # C/C++
+    "cs"                            # C#
+    "go"                            # Go
+    "rs"                            # Rust
+    "rb"                            # Ruby
+    "php"                           # PHP
+    "swift"                         # Swift
+    "m" "mm"                        # Objective-C
+    "scala"                         # Scala
+    "r" "R"                         # R
+    "lua"                           # Lua
+    "pl" "pm"                       # Perl
+    "sh" "bash" "zsh"               # Shell
+    "sql"                           # SQL
+    "vue"                           # Vue
+    "elm"                           # Elm
+    "ex" "exs"                      # Elixir
+)
+
+# Function to check if file has a valid source extension
+has_valid_extension() {
+    local file="$1"
+    local ext="${file##*.}"
+    
+    for valid_ext in "${SOURCE_EXTENSIONS[@]}"; do
+        if [[ "$ext" == "$valid_ext" ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Function to count lines of code (excluding empty lines and comments)
+count_lines() {
+    local file="$1"
+    # Simple line count - can be enhanced for more accuracy
+    wc -l < "$file" | tr -d ' '
+}
+
+# Function to detect language from file extension
+detect_language() {
+    local file="$1"
+    local ext="${file##*.}"
+    
+    case "$ext" in
+        js|jsx) echo "JavaScript";;
+        ts|tsx) echo "TypeScript";;
+        py|pyw) echo "Python";;
+        java) echo "Java";;
+        kt|kts) echo "Kotlin";;
+        c|h) echo "C";;
+        cpp|cc|cxx|hpp) echo "C++";;
+        cs) echo "C#";;
+        go) echo "Go";;
+        rs) echo "Rust";;
+        rb) echo "Ruby";;
+        php) echo "PHP";;
+        swift) echo "Swift";;
+        m|mm) echo "Objective-C";;
+        scala) echo "Scala";;
+        r|R) echo "R";;
+        lua) echo "Lua";;
+        pl|pm) echo "Perl";;
+        sh|bash|zsh) echo "Shell";;
+        sql) echo "SQL";;
+        vue) echo "Vue";;
+        elm) echo "Elm";;
+        ex|exs) echo "Elixir";;
+        *) echo "Unknown";;
+    esac
+}
+
+# Check if vibe-check directory exists
+if [[ ! -d "$VIBE_CHECK_DIR" ]]; then
+    echo -e "${RED}Error: vibe-check directory not found!${NC}"
+    echo "Please run the setup script first to create the vibe-check structure."
+    exit 1
+fi
+
+# Check if git is available and we're in a git repository
+# For testing, we can force non-git mode by setting FORCE_NO_GIT=1
+if [[ "${FORCE_NO_GIT:-0}" == "1" ]]; then
+    USE_GIT=false
+    echo -e "${YELLOW}Forced non-git mode. Using find command.${NC}"
+elif command -v git &> /dev/null && git rev-parse --git-dir &> /dev/null 2>/dev/null; then
+    USE_GIT=true
+    echo -e "${GREEN}Git repository detected. Using git ls-files to respect .gitignore${NC}"
+else
+    USE_GIT=false
+    echo -e "${YELLOW}Not a git repository or git not available. Using find command.${NC}"
+fi
+
+# Create temporary file for JSON content
+TEMP_FILE=$(mktemp)
+
+# Initialize JSON structure
+cat > "$TEMP_FILE" << EOF
+{
+  "metadata": {
+    "version": "1.0",
+    "description": "Vibe-Check Master Review Ledger - Single source of truth for all code review progress",
+    "generated": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+    "total_files": 0,
+    "total_loc": 0,
+    "status_legend": {
+      "not_reviewed": "File has not been reviewed yet",
+      "in_progress": "Review is currently in progress",
+      "completed": "Review has been completed",
+      "needs_update": "Source file changed, review needs update"
+    },
+    "score_range": {
+      "min": 1,
+      "max": 5,
+      "description": "1 = Critical issues, 5 = Excellent"
+    }
+  },
+  "files": {
+EOF
+
+# Collect source files
+echo -e "\n${GREEN}Scanning for source files...${NC}"
+file_count=0
+total_loc=0
+
+# Function to process a file
+process_file() {
+    local file="$1"
+    
+    # Skip if file doesn't exist or is a directory
+    if [[ ! -f "$file" ]] || [[ -d "$file" ]]; then
+        return
+    fi
+    
+    # Skip if not a source file
+    if ! has_valid_extension "$file"; then
+        return
+    fi
+    
+    # Get file info
+    local lang=$(detect_language "$file")
+    local loc=$(count_lines "$file")
+    
+    # Add to total
+    ((file_count++))
+    ((total_loc+=loc))
+    
+    # Add comma if not first file
+    if [[ $file_count -gt 1 ]]; then
+        echo "," >> "$TEMP_FILE"
+    fi
+    
+    # Add JSON entry for file
+    cat >> "$TEMP_FILE" << EOF
+    "$file": {
+      "language": "$lang",
+      "loc": $loc,
+      "status": "not_reviewed",
+      "review_date": null,
+      "reviewer": null,
+      "scores": {
+        "security": null,
+        "performance": null,
+        "maintainability": null,
+        "consistency": null,
+        "best_practices": null,
+        "code_smell": null
+      },
+      "open_issues": 0,
+      "dependency_count": 0
+    }
+EOF
+    
+    # Progress indicator
+    if [[ $((file_count % 10)) -eq 0 ]]; then
+        echo -ne "\rProcessed $file_count files..."
+    fi
+}
+
+if [[ "$USE_GIT" == true ]]; then
+    # Use git ls-files to get all tracked files
+    while IFS= read -r file; do
+        # Skip vibe-check directory
+        if [[ "$file" == "$VIBE_CHECK_DIR/"* ]]; then
+            continue
+        fi
+        process_file "$file"
+    done < <(git ls-files)
+else
+    # Use find command, excluding common directories
+    while IFS= read -r file; do
+        # Remove leading ./ from path
+        file="${file#./}"
+        process_file "$file"
+    done < <(find . -type f \
+        -not -path "./$VIBE_CHECK_DIR/*" \
+        -not -path "*/\.*" \
+        -not -path "*/node_modules/*" \
+        -not -path "*/venv/*" \
+        -not -path "*/env/*" \
+        -not -path "*/__pycache__/*" \
+        -not -path "*/build/*" \
+        -not -path "*/dist/*" \
+        -not -path "*/target/*" \
+        -not -path "*/vendor/*" \
+        -not -path "*/coverage/*" \
+        -not -path "*/.git/*")
+fi
+
+echo -e "\n"
+
+# Close JSON structure
+echo "" >> "$TEMP_FILE"
+echo "  }" >> "$TEMP_FILE"
+echo "}" >> "$TEMP_FILE"
+
+# Now update the metadata with actual counts
+# Create a new temp file with updated metadata
+TEMP_FILE2=$(mktemp)
+awk -v files="$file_count" -v loc="$total_loc" '
+    /"total_files":/ { sub(/: [0-9]+/, ": " files) }
+    /"total_loc":/ { sub(/: [0-9]+/, ": " loc) }
+    { print }
+' "$TEMP_FILE" > "$TEMP_FILE2"
+
+# Move temp file to actual location
+mv "$TEMP_FILE2" "$MASTER_FILE"
+rm -f "$TEMP_FILE"
+
+# Summary
+echo -e "${GREEN}✓ Master list populated successfully!${NC}"
+echo -e "  Files found: ${YELLOW}$file_count${NC}"
+echo -e "  Total LOC: ${YELLOW}$total_loc${NC}"
+echo -e "  Output: ${YELLOW}$MASTER_FILE${NC}"
+echo ""
+echo "Next steps:"
+echo "1. Review the generated list in $MASTER_FILE"
+echo "2. Use the reviewer AI with REVIEWER_INSTRUCTIONS.md to process each file"
+echo "3. The AI will update this master list as reviews are completed"
+```
+
+After creating this file, make it executable:
+```bash
+chmod +x vibe-check/scripts/populate_master.sh
 ```
 
 ### 3. Verification Checklist
@@ -360,24 +638,28 @@ After creating all files, verify:
 
 - [ ] `vibe-check/` directory exists in repository root
 - [ ] `vibe-check/prompts/` directory exists
+- [ ] `vibe-check/scripts/` directory exists
 - [ ] `vibe-check/reviews/` directory exists
 - [ ] `vibe-check/reviews/modules/` directory exists  
 - [ ] `vibe-check/reviews/system/` directory exists
 - [ ] `vibe-check/prompts/REVIEWER_INSTRUCTIONS.md` exists with complete algorithm
-- [ ] `vibe-check/reviews/_MASTER.md` exists and contains the table structure
+- [ ] `vibe-check/reviews/_MASTER.json` exists with proper JSON structure
 - [ ] `vibe-check/reviews/_DEPENDENCIES.yml` exists with YAML format
 - [ ] `vibe-check/reviews/system/HOTSPOTS.md` exists with section headers
 - [ ] `vibe-check/reviews/system/METRICS_SUMMARY.md` exists with metric table
 - [ ] `vibe-check/reviews/modules/README.md` exists with navigation guide
+- [ ] `vibe-check/scripts/populate_master.sh` exists and is executable
 
 ### 4. Next Steps
 
 Once this structure is in place:
 
-1. Run an inventory script to populate `vibe-check/reviews/_MASTER.md` with all source files in the repository (excluding the vibe-check folder itself)
-2. Begin the review process following the algorithm in the REVIEWER_INSTRUCTIONS.md
-3. Create review files in `vibe-check/reviews/modules/` mirroring the repository structure
-4. The vibe-check system will treat all files outside the vibe-check folder as source code to review
+1. Run `./vibe-check/scripts/populate_master.sh` to scan the repository and populate `vibe-check/reviews/_MASTER.json` with all source files
+   - Use `FORCE_NO_GIT=1 ./vibe-check/scripts/populate_master.sh` if not using git
+2. Review the generated master list to ensure all expected files are included
+3. Begin the review process by providing the REVIEWER_INSTRUCTIONS.md to an AI agent
+4. The AI will process files one at a time, updating the master list and creating review artifacts
+5. Monitor progress by checking the status field in `_MASTER.json`
 
 ### 5. Important Notes
 
