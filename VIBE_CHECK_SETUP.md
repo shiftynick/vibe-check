@@ -13,8 +13,7 @@ vibe-check/
 ├── prompts/
 ├── scripts/
 └── reviews/
-    ├── modules/
-    └── system/
+    └── modules/
 ```
 
 ### 2. Create Initial Files
@@ -47,87 +46,7 @@ Create this file with the following content:
 }
 ```
 
-#### 2.2 Create `vibe-check/reviews/system/HOTSPOTS.md`
-
-Create this file with the following content:
-
-```markdown
-# Cross-Cutting Issues and Hotspots
-
-This file tracks issues that span multiple files or represent systemic patterns in the codebase.
-
-## Issue Categories
-- **Security**: Vulnerabilities affecting multiple components
-- **Architecture**: Design patterns and structural concerns
-- **Performance**: System-wide performance bottlenecks
-- **Duplication**: Code duplication patterns
-- **Dependencies**: Circular dependencies or problematic coupling
-
-## Active Hotspots
-
-*This section will be populated as reviews progress and patterns emerge.*
-
----
-
-## Resolved Hotspots
-
-*Archive of previously identified and resolved cross-cutting issues.*
-```
-
-#### 2.3 Create `vibe-check/reviews/system/METRICS_SUMMARY.md`
-
-Create this file with the following content:
-
-```markdown
-# Repository-Wide Metrics Summary
-
-## Overall Health Score
-*To be calculated after initial reviews*
-
-## Metric Breakdown
-
-| Metric | Average Score | Files Below 3 | Files At 5 |
-|--------|---------------|---------------|------------|
-| Security | - | - | - |
-| Performance | - | - | - |
-| Maintainability | - | - | - |
-| Consistency | - | - | - |
-| Best Practices | - | - | - |
-| Code Smell | - | - | - |
-
-## Statistics
-- Total Files Reviewed: 0
-- Total Lines of Code: 0
-- Total Open Issues: 0
-- Average Dependencies per File: 0
-
-## Trends
-*Tracking improvements over time*
-
-Last Updated: [Date will be auto-updated]
-```
-
-#### 2.4 Create `vibe-check/reviews/modules/README.md`
-
-Create this file with the following content:
-
-```markdown
-# Modules Directory
-
-This directory mirrors the structure of the repository root (excluding the vibe-check folder). Each subdirectory represents a module or component in the source code.
-
-## Structure
-- Each source code file will have a corresponding `.xml` review file
-- Module-level README files synthesize findings across all files in that module
-- Directory structure mirrors the repository structure (excluding the vibe-check folder itself)
-
-## Navigation Tips
-- Review files use the same name as source files but with `.xml` extension
-- Use relative paths when referencing other reviews
-- Module READMEs are created after all files in the module are reviewed
-```
-
-#### 2.5 Create `vibe-check/reviews/_SCRATCHSHEET.md`
+#### 2.2 Create `vibe-check/reviews/_SCRATCHSHEET.md`
 
 Create this file with the following content:
 
@@ -159,7 +78,7 @@ max_entries: 50
 <!-- Test framework patterns and requirements -->
 ```
 
-#### 2.6 Create `vibe-check/prompts/REVIEWER_INSTRUCTIONS.md`
+#### 2.3 Create `vibe-check/prompts/REVIEWER_INSTRUCTIONS.md`
 
 Create this file with the following content:
 
@@ -185,12 +104,13 @@ You are the File Reviewer AI. Your task is to analyze EXACTLY ONE source file an
 ## Inputs
 
 - `FILE_PATH` - The specific file path provided by the review script (relative to repository root)
+- `XML_REVIEW_FILE` - Pre-created XML review file path ready for you to populate
 - Access to `vibe-check/reviews/` directory for reading and writing review artifacts
 - The fixed metrics list: Security, Performance, Maintainability, Consistency, Best_Practices, Code_Smell
 
 ## Outputs
 
-1. A complete review XML file at `vibe-check/reviews/modules/.../[filename].xml`
+1. A completed review by filling in the pre-created XML file at the provided XML_REVIEW_FILE path
 
 ## Precise Algorithm to Follow
 
@@ -268,69 +188,29 @@ For each metric:
   - 2 = High severity issues present
   - 1 = Critical flaws, rewrite needed
 
-### Step 4: Create Review XML
+### Step 4: Complete the Pre-Created XML Review File
 
-Use this exact template:
+A review XML file has been pre-created for you at XML_REVIEW_FILE. Open this file and complete it by:
 
-\`\`\`xml
-<review>
-  <metadata>
-    <file>[FILE_PATH]</file>
-    <language>[DETECTED_LANGUAGE]</language>
-    <loc>[LINE_COUNT]</loc>
-    <reviewer>AI-[IDENTIFIER]</reviewer>
-    <date>[YYYY-MM-DD]</date>
-    <status>complete</status>
-  </metadata>
-  
-  <scores>
-    <metric name="security" score="[1-5]" open_issues="[COUNT]"/>
-    <metric name="performance" score="[1-5]" open_issues="[COUNT]"/>
-    <metric name="maintainability" score="[1-5]" open_issues="[COUNT]"/>
-    <metric name="consistency" score="[1-5]" open_issues="[COUNT]"/>
-    <metric name="best_practices" score="[1-5]" open_issues="[COUNT]"/>
-    <metric name="code_smell" score="[1-5]" open_issues="[COUNT]"/>
-  </scores>
-  
-  <issues>
-    <issue category="security" severity="HIGH">
-      <title>Hardcoded JWT Secret</title>
-      <location>Line 39</location>
-      <description>JWT tokens are signed with a hardcoded secret 'supersecret123', making all tokens vulnerable to forgery</description>
-      <recommendation>Use environment variables or secure configuration management for JWT secrets</recommendation>
-    </issue>
-    
-    <issue category="performance" severity="MEDIUM">
-      <title>N+1 Query Problem</title>
-      <location>Lines 46-52</location>
-      <description>getAllUsers method executes one query per user to fetch posts, causing N+1 queries</description>
-      <recommendation>Use JOIN operations or batch queries to fetch all posts in a single query</recommendation>
-    </issue>
-  </issues>
-  
-  <summary>Brief description of file purpose and overall health assessment</summary>
-  
-  <positive_observations>
-    <observation>Uses bcrypt for password hashing with appropriate salt rounds</observation>
-    <observation>Clean class-based architecture with dependency injection</observation>
-    <observation>Consistent naming conventions following camelCase</observation>
-  </positive_observations>
-  
-  <context>
-    <tests>No test files found</tests>
-    <documentation>No documentation found</documentation>
-    <configuration>No configuration files found</configuration>
-  </context>
-  
-  <checklist>
-    <item completed="false">Lints clean</item>
-    <item completed="false">Tests present</item>
-    <item completed="false">Documentation updated</item>
-    <item completed="false">Security review complete</item>
-    <item completed="false">Performance acceptable</item>
-  </checklist>
-</review>
-\`\`\`
+1. **Fill in the scores section**: Update each metric's score (1-5) and open_issues count
+2. **Add issues**: Replace the comment with actual issue elements for any problems found
+3. **Complete the summary**: Add a brief description of the file's purpose and overall health
+4. **Add positive observations**: Include any good practices or well-implemented features
+5. **Fill in context**: Update tests, documentation, and configuration findings
+6. **Update checklist**: Mark items as completed="true" where appropriate
+7. **Update status**: Change status from "in_progress" to "complete" in metadata
+
+Example issue format:
+```xml
+<issue category="security" severity="HIGH">
+  <title>Hardcoded JWT Secret</title>
+  <location>Line 39</location>
+  <description>JWT tokens are signed with a hardcoded secret 'supersecret123', making all tokens vulnerable to forgery</description>
+  <recommendation>Use environment variables or secure configuration management for JWT secrets</recommendation>
+</issue>
+```
+
+**Important**: The XML file structure is already created with proper metadata (file path, language, LOC, etc.) - you only need to fill in the review content.
 
 ### Step 5: Update Global Scratchsheet
 - Open `vibe-check/reviews/_SCRATCHSHEET.md`
@@ -374,7 +254,7 @@ If you encounter any errors:
 - Lock conflict: Wait and retry once, then report conflict
 ```
 
-#### 2.7 Create `vibe-check/scripts/vibe-check`
+#### 2.4 Create `vibe-check/scripts/vibe-check`
 
 Create this streamlined executable script that handles all vibe-check operations:
 
@@ -391,7 +271,7 @@ R, G, Y, B, N = '\033[0;31m', '\033[0;32m', '\033[1;33m', '\033[0;34m', '\033[0m
 def status(color, msg): print(f"{color}{msg}{N}")
 
 # Core file extensions  
-EXTS = {'js','jsx','ts','tsx','py','java','go','rs','rb','php','c','cpp','h','hpp','cs','swift','kt','sh','sql'}
+EXTS = {'js','jsx','ts','tsx','vue','svelte','py','java','go','rs','rb','php','c','cpp','h','hpp','cs','swift','kt','sh','sql'}
 
 class VibeCheck:
     def __init__(self):
@@ -478,6 +358,9 @@ class VibeCheck:
         self.log_dir.mkdir(exist_ok=True)
         log_file = self.log_dir / f"review_{datetime.now():%Y%m%d_%H%M%S}.log"
         
+        # Create XML review file structure
+        xml_file_path = self._create_review_xml_file(file_to_review)
+        
         data['files'][file_to_review]['status'] = 'in_progress'
         self.save_master(data)
         status(B, f"Reviewing: {file_to_review}")
@@ -490,10 +373,14 @@ class VibeCheck:
             with open(scratchsheet_file, 'r') as f:
                 scratchsheet_content = f"\\n\\nGlobal Scratchsheet:\\n{f.read()}"
         
-        prompt = f"Review this file:\\nFILE_PATH: {file_to_review}{scratchsheet_content}\\n\\n{instructions}"
+        prompt = f"Review this file:\\nFILE_PATH: {file_to_review}\\nXML_REVIEW_FILE: {xml_file_path}{scratchsheet_content}\\n\\n{instructions}"
         
-        # Run Claude
+        # Run Claude with timing
         cmd = ['claude', '--print', prompt, '--output-format', 'stream-json', '--permission-mode', 'acceptEdits', '--verbose']
+        start_time = time.time()
+        
+        tokens_used = input_tokens = output_tokens = 0
+        cost_usd = 0.0
         
         with open(log_file, 'w') as log:
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
@@ -504,15 +391,48 @@ class VibeCheck:
                     if d.get('type') == 'assistant':
                         for item in d.get('message', {}).get('content', []):
                             if item.get('type') == 'text' and (text := item.get('text', '').strip()):
-                                print(f"{text}\\n---")
+                                print(f"{text}\n---")
+                    elif d.get('type') == 'result':
+                        # Final result contains usage and cost information
+                        usage = d.get('usage', {})
+                        if usage:
+                            input_tokens = usage.get('input_tokens', 0) + usage.get('cache_read_input_tokens', 0)
+                            output_tokens = usage.get('output_tokens', 0)
+                            tokens_used = input_tokens + output_tokens
+                            cost_usd = d.get('total_cost_usd', 0.0)
+                    elif d.get('type') == 'assistant' and 'usage' in d.get('message', {}):
+                        # Also check assistant messages for usage data
+                        usage = d['message']['usage']
+                        input_tokens = usage.get('input_tokens', 0) + usage.get('cache_read_input_tokens', 0)
+                        output_tokens = usage.get('output_tokens', 0)
+                        tokens_used = input_tokens + output_tokens
+                        # Fallback calculation if no total_cost_usd
+                        if cost_usd == 0.0:
+                            cost_usd = (input_tokens * 3.0 + output_tokens * 15.0) / 1_000_000
                 except: pass
             proc.wait()
+        
+        duration = time.time() - start_time
         
         if proc.returncode == 0:
             data = self.load_master()
             data['files'][file_to_review]['status'] = 'completed'
             self.save_master(data)
+            
+            # Display summary
             status(G, "✓ Review completed!")
+            print(f"{B}=== Review Summary ==={N}")
+            print(f"File: {Y}{file_to_review}{N}")
+            print(f"Duration: {Y}{duration:.1f}s{N}")
+            if tokens_used > 0:
+                print(f"Tokens: {Y}{input_tokens:,}{N} in + {Y}{output_tokens:,}{N} out = {Y}{tokens_used:,}{N} total")
+                print(f"Cost: {Y}${cost_usd:.4f}{N}")
+            
+            # Calculate running totals
+            remaining = sum(1 for info in data['files'].values() if info['status'] in ['not_reviewed', 'in_progress'])
+            completed = sum(1 for info in data['files'].values() if info['status'] == 'completed')
+            print(f"Progress: {Y}{completed}/{len(data['files'])}{N} files ({Y}{remaining}{N} remaining)")
+            print()
             return 0
         else:
             status(R, f"✗ Review failed! Check: {log_file}")
@@ -697,6 +617,78 @@ Focus on business impact and actionability."""
                 status(Y, f"Warning: Could not parse {xml_file}: {e}")
         
         return issues
+    
+    def _create_review_xml_file(self, file_path):
+        """Create XML review file with basic structure"""
+        # Create modules directory structure
+        modules_dir = self.vibe_dir / "reviews" / "modules"
+        
+        # Map source file to review file path
+        source_path = Path(file_path)
+        xml_file_path = modules_dir / source_path.with_suffix('.xml')
+        
+        # Create parent directories
+        xml_file_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Get file info
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                loc = sum(1 for _ in f)
+            language = source_path.suffix[1:].title() if source_path.suffix else 'Unknown'
+        except:
+            loc = 0
+            language = 'Unknown'
+        
+        # Create basic XML structure
+        xml_content = f'''<?xml version="1.0" encoding="UTF-8"?>
+<review>
+  <metadata>
+    <file>{file_path}</file>
+    <language>{language}</language>
+    <loc>{loc}</loc>
+    <reviewer>AI-Claude</reviewer>
+    <date>{datetime.now().date()}</date>
+    <status>in_progress</status>
+  </metadata>
+  
+  <scores>
+    <metric name="security" score="" open_issues=""/>
+    <metric name="performance" score="" open_issues=""/>
+    <metric name="maintainability" score="" open_issues=""/>
+    <metric name="consistency" score="" open_issues=""/>
+    <metric name="best_practices" score="" open_issues=""/>
+    <metric name="code_smell" score="" open_issues=""/>
+  </scores>
+  
+  <issues>
+    <!-- Issues will be added here -->
+  </issues>
+  
+  <summary></summary>
+  
+  <positive_observations>
+    <!-- Positive observations will be added here -->
+  </positive_observations>
+  
+  <context>
+    <tests></tests>
+    <documentation></documentation>
+    <configuration></configuration>
+  </context>
+  
+  <checklist>
+    <item completed="false">Lints clean</item>
+    <item completed="false">Tests present</item>
+    <item completed="false">Documentation updated</item>
+    <item completed="false">Security review complete</item>
+    <item completed="false">Performance acceptable</item>
+  </checklist>
+</review>'''
+        
+        with open(xml_file_path, 'w', encoding='utf-8') as f:
+            f.write(xml_content)
+        
+        return xml_file_path
 
 def main():
     parser = argparse.ArgumentParser(description='Vibe-Check: Streamlined AI code review')
@@ -752,6 +744,7 @@ ls -la vibe-check/scripts/
 You should see:
 - `vibe-check/reviews/_MASTER.json` 
 - `vibe-check/reviews/_SCRATCHSHEET.md`
+- `vibe-check/reviews/modules/` (directory)
 - `vibe-check/prompts/REVIEWER_INSTRUCTIONS.md`
 - `vibe-check/scripts/vibe-check` (executable)
 

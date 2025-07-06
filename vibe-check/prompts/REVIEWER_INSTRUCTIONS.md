@@ -19,12 +19,13 @@ You are the File Reviewer AI. Your task is to analyze EXACTLY ONE source file an
 ## Inputs
 
 - `FILE_PATH` - The specific file path provided by the review script (relative to repository root)
+- `XML_REVIEW_FILE` - Pre-created XML review file path ready for you to populate
 - Access to `vibe-check/reviews/` directory for reading and writing review artifacts
 - The fixed metrics list: Security, Performance, Maintainability, Consistency, Best_Practices, Code_Smell
 
 ## Outputs
 
-1. A complete review XML file at `vibe-check/reviews/modules/.../[filename].xml`
+1. A completed review by filling in the pre-created XML file at the provided XML_REVIEW_FILE path
 
 ## Precise Algorithm to Follow
 
@@ -102,69 +103,29 @@ For each metric:
   - 2 = High severity issues present
   - 1 = Critical flaws, rewrite needed
 
-### Step 4: Create Review XML
+### Step 4: Complete the Pre-Created XML Review File
 
-Use this exact template:
+A review XML file has been pre-created for you at XML_REVIEW_FILE. Open this file and complete it by:
 
+1. **Fill in the scores section**: Update each metric's score (1-5) and open_issues count
+2. **Add issues**: Replace the comment with actual issue elements for any problems found
+3. **Complete the summary**: Add a brief description of the file's purpose and overall health
+4. **Add positive observations**: Include any good practices or well-implemented features
+5. **Fill in context**: Update tests, documentation, and configuration findings
+6. **Update checklist**: Mark items as completed="true" where appropriate
+7. **Update status**: Change status from "in_progress" to "complete" in metadata
+
+Example issue format:
 ```xml
-<review>
-  <metadata>
-    <file>[FILE_PATH]</file>
-    <language>[DETECTED_LANGUAGE]</language>
-    <loc>[LINE_COUNT]</loc>
-    <reviewer>AI-[IDENTIFIER]</reviewer>
-    <date>[YYYY-MM-DD]</date>
-    <status>complete</status>
-  </metadata>
-  
-  <scores>
-    <metric name="security" score="[1-5]" open_issues="[COUNT]"/>
-    <metric name="performance" score="[1-5]" open_issues="[COUNT]"/>
-    <metric name="maintainability" score="[1-5]" open_issues="[COUNT]"/>
-    <metric name="consistency" score="[1-5]" open_issues="[COUNT]"/>
-    <metric name="best_practices" score="[1-5]" open_issues="[COUNT]"/>
-    <metric name="code_smell" score="[1-5]" open_issues="[COUNT]"/>
-  </scores>
-  
-  <issues>
-    <issue category="security" severity="HIGH">
-      <title>Hardcoded JWT Secret</title>
-      <location>Line 39</location>
-      <description>JWT tokens are signed with a hardcoded secret 'supersecret123', making all tokens vulnerable to forgery</description>
-      <recommendation>Use environment variables or secure configuration management for JWT secrets</recommendation>
-    </issue>
-    
-    <issue category="performance" severity="MEDIUM">
-      <title>N+1 Query Problem</title>
-      <location>Lines 46-52</location>
-      <description>getAllUsers method executes one query per user to fetch posts, causing N+1 queries</description>
-      <recommendation>Use JOIN operations or batch queries to fetch all posts in a single query</recommendation>
-    </issue>
-  </issues>
-  
-  <summary>Brief description of file purpose and overall health assessment</summary>
-  
-  <positive_observations>
-    <observation>Uses bcrypt for password hashing with appropriate salt rounds</observation>
-    <observation>Clean class-based architecture with dependency injection</observation>
-    <observation>Consistent naming conventions following camelCase</observation>
-  </positive_observations>
-  
-  <context>
-    <tests>No test files found</tests>
-    <documentation>No documentation found</documentation>
-    <configuration>No configuration files found</configuration>
-  </context>
-  
-  <checklist>
-    <item completed="false">Lints clean</item>
-    <item completed="false">Tests present</item>
-    <item completed="false">Documentation updated</item>
-    <item completed="false">Security review complete</item>
-    <item completed="false">Performance acceptable</item>
-  </checklist>
-</review>
+<issue category="security" severity="HIGH">
+  <title>Hardcoded JWT Secret</title>
+  <location>Line 39</location>
+  <description>JWT tokens are signed with a hardcoded secret 'supersecret123', making all tokens vulnerable to forgery</description>
+  <recommendation>Use environment variables or secure configuration management for JWT secrets</recommendation>
+</issue>
 ```
+
+**Important**: The XML file structure is already created with proper metadata (file path, language, LOC, etc.) - you only need to fill in the review content.
 
 ### Step 5: Update Global Scratchsheet
 - Open `vibe-check/reviews/_SCRATCHSHEET.md`
@@ -193,7 +154,7 @@ Use this exact template:
 2. Be objective and consistent in scoring
 3. Always provide actionable recommendations
 4. Use exact file paths (no wildcards or patterns)
-5. Maintain the exact XML format specified
+5. Maintain the exact format specified
 6. Complete ALL sections even if empty
 7. Never modify source code files
 8. Keep findings specific with line numbers
