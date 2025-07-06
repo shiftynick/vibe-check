@@ -699,6 +699,436 @@ class VibeCheck:
             print(f"\nProgress: [{GREEN}{bar}{NC}] {pct*100:.1f}%")
         
         return 0
+    
+    def synthesize(self, severity: str = 'medium', category: str = 'all', 
+                   score_threshold: Optional[int] = None, critical_only: bool = False,
+                   interactive: bool = True) -> int:
+        """Synthesize individual reviews into actionable insights"""
+        if not self.check_setup(): return 1
+        
+        # Check prerequisites
+        try: subprocess.run(["claude", "--version"], capture_output=True, check=True)
+        except:
+            print_status(RED, "Error: Claude CLI not found! Install: npm install -g @anthropic-ai/claude-code")
+            return 1
+        
+        if not self.master_file.exists():
+            print_status(RED, "No reviews found! Run populate and review first.")
+            return 1
+        
+        # Create synthesis directory structure
+        synthesis_dir = self.vibe_dir / "synthesis"
+        synthesis_dir.mkdir(exist_ok=True)
+        (synthesis_dir / "priority-high").mkdir(exist_ok=True)
+        (synthesis_dir / "priority-medium").mkdir(exist_ok=True)
+        (synthesis_dir / "priority-low").mkdir(exist_ok=True)
+        
+        # Load completed reviews
+        data = self.load_master()
+        completed_files = {fp: info for fp, info in data['files'].items() 
+                          if info['status'] == 'completed'}
+        
+        if not completed_files:
+            print_status(RED, "No completed reviews found! Run reviews first.")
+            return 1
+        
+        # Collect issues from review files
+        issues = self._collect_issues(completed_files)
+        
+        if not issues:
+            print_status(YELLOW, "No issues found in completed reviews.")
+            return 0
+        
+        # Filter issues based on criteria
+        filtered_issues = self._filter_issues(issues, severity, category, score_threshold, critical_only)
+        
+        # Interactive mode selection
+        if interactive and len(issues) > 100:
+            filtered_issues = self._interactive_selection(issues, filtered_issues)
+        
+        if not filtered_issues:
+            print_status(YELLOW, f"No issues found matching criteria (severity: {severity}, category: {category})")
+            return 0
+        
+        print_status(BLUE, f"Synthesizing {len(filtered_issues)} issues across {len(set(i['file'] for i in filtered_issues))} files...")
+        
+        # Process in chunks
+        return self._process_synthesis_chunks(filtered_issues, severity)
+    
+    def _collect_issues(self, completed_files: Dict) -> List[Dict]:
+        """Collect all issues from completed review files"""
+        issues = []
+        reviews_dir = self.vibe_dir / "reviews" / "modules"
+        
+        for file_path in completed_files.keys():
+            # Handle nested directory structure
+            review_file = reviews_dir / f"{file_path}.md"
+            
+            if review_file.exists():
+                file_issues = self._parse_review_file(review_file, file_path)
+                issues.extend(file_issues)
+        return issues
+    
+    def _parse_review_file(self, review_file: Path, file_path: str) -> List[Dict]:
+        """Parse a review markdown file and extract issues"""
+        issues = []
+        try:
+            with open(review_file, 'r') as f:
+                content = f.read()
+            
+            # Extract YAML frontmatter for scores
+            scores = {}
+            if content.startswith('---'):
+                yaml_end = content.find('---', 3)
+                if yaml_end > 0:
+                    yaml_content = content[3:yaml_end]
+                    # Parse scores (simplified)
+                    for line in yaml_content.split('\n'):
+                        if 'score:' in line and '{' in line:
+                            # Handle format like "  security:        {score: 1, open_issues: 4}"
+                            if ':' in line:
+                                metric = line.split(':')[0].strip()
+                                score_part = line.split('score:')[1].strip()
+                                if score_part.startswith('{') or score_part[0].isdigit():
+                                    try:
+                                        # Extract just the score number
+                                        score_str = score_part.split(',')[0].replace('{', '').strip()
+                                        score = int(score_str)
+                                        scores[metric] = score
+                                    except (ValueError, IndexError):
+                                        pass
+            
+            # Extract issues from markdown sections
+            lines = content.split('\n')
+            current_category = None
+            
+            for i, line in enumerate(lines):
+                if line.startswith('## ') and 'Issues' in line:
+                    current_category = line.replace('## ', '').replace(' Issues', '').lower()
+                elif line.startswith('### ') and current_category:
+                    # Found an issue
+                    parts = line[4:].split(' - ', 1)
+                    if len(parts) == 2:
+                        # Extract severity, handling format like "1. HIGH" or "HIGH"
+                        severity_part = parts[0].strip('[]').upper()
+                        # Remove number prefix if present (e.g., "1. HIGH" -> "HIGH")
+                        if '. ' in severity_part:
+                            severity = severity_part.split('. ', 1)[1]
+                        else:
+                            severity = severity_part
+                        title = parts[1]
+                        
+                        # Find location and description
+                        location = description = recommendation = ""
+                        for j in range(i+1, min(i+10, len(lines))):
+                            if lines[j].startswith('- **Location**:'):
+                                location = lines[j].replace('- **Location**:', '').strip()
+                            elif lines[j].startswith('- **Description**:'):
+                                description = lines[j].replace('- **Description**:', '').strip()
+                            elif lines[j].startswith('- **Recommendation**:'):
+                                recommendation = lines[j].replace('- **Recommendation**:', '').strip()
+                            elif lines[j].startswith('##') or lines[j].startswith('###'):
+                                break
+                        
+                        issue = {
+                            'file': file_path,
+                            'category': current_category,
+                            'severity': severity,
+                            'title': title,
+                            'location': location,
+                            'description': description,
+                            'recommendation': recommendation,
+                            'file_scores': scores
+                        }
+                        issues.append(issue)
+        
+        except Exception as e:
+            print_status(YELLOW, f"Warning: Could not parse {review_file}: {e}")
+        
+        return issues
+    
+    def _filter_issues(self, issues: List[Dict], severity: str, category: str, 
+                      score_threshold: Optional[int], critical_only: bool) -> List[Dict]:
+        """Filter issues based on specified criteria"""
+        filtered = issues.copy()
+        
+        # Filter by severity
+        severity_levels = {
+            'high': ['HIGH'],
+            'medium': ['HIGH', 'MEDIUM'],
+            'low': ['HIGH', 'MEDIUM', 'LOW']
+        }
+        if severity in severity_levels:
+            filtered = [i for i in filtered if i['severity'] in severity_levels[severity]]
+        
+        # Filter by category
+        if category != 'all':
+            filtered = [i for i in filtered if i['category'] == category.lower()]
+        
+        # Filter by score threshold
+        if score_threshold:
+            filtered = [i for i in filtered if any(score and score < score_threshold 
+                       for score in i['file_scores'].values())]
+        
+        # Filter critical files only
+        if critical_only:
+            filtered = [i for i in filtered if any(score and score <= 2 
+                       for score in i['file_scores'].values())]
+        
+        return filtered
+    
+    def _interactive_selection(self, all_issues: List[Dict], filtered_issues: List[Dict]) -> List[Dict]:
+        """Interactive selection when there are many issues"""
+        total = len(all_issues)
+        high_count = len([i for i in all_issues if i['severity'] == 'HIGH'])
+        medium_count = len([i for i in all_issues if i['severity'] == 'MEDIUM'])
+        low_count = len([i for i in all_issues if i['severity'] == 'LOW'])
+        
+        print(f"\n{BLUE}Found {total} total issues:{NC}")
+        print(f"  - {high_count} HIGH severity issues")
+        print(f"  - {medium_count} MEDIUM severity issues")
+        print(f"  - {low_count} LOW severity issues")
+        print(f"\nCurrent filter would process {len(filtered_issues)} issues.")
+        print(f"\nSelect synthesis mode:")
+        print(f"1. Quick (HIGH only) - ~{high_count} issues")
+        print(f"2. Standard (HIGH + MEDIUM) - ~{high_count + medium_count} issues")
+        print(f"3. Comprehensive (All) - ~{total} issues")
+        print(f"4. Continue with current filter - {len(filtered_issues)} issues")
+        
+        while True:
+            try:
+                choice = input(f"\n{YELLOW}Choice (1-4): {NC}").strip()
+                if choice == '1':
+                    return self._filter_issues(all_issues, 'high', 'all', None, False)
+                elif choice == '2':
+                    return self._filter_issues(all_issues, 'medium', 'all', None, False)
+                elif choice == '3':
+                    return self._filter_issues(all_issues, 'low', 'all', None, False)
+                elif choice == '4':
+                    return filtered_issues
+                else:
+                    print("Please enter 1, 2, 3, or 4")
+            except KeyboardInterrupt:
+                print(f"\n{YELLOW}Cancelled.{NC}")
+                return []
+    
+    def _process_synthesis_chunks(self, issues: List[Dict], severity: str) -> int:
+        """Process issues in manageable chunks"""
+        # Group issues by priority
+        high_issues = [i for i in issues if i['severity'] == 'HIGH']
+        medium_issues = [i for i in issues if i['severity'] == 'MEDIUM']
+        low_issues = [i for i in issues if i['severity'] == 'LOW']
+        
+        chunks = []
+        
+        # Create chunks based on severity (smaller chunks for higher priority)
+        if high_issues:
+            chunks.extend(self._create_chunks(high_issues, 10, "Critical Issues"))
+        if medium_issues:
+            chunks.extend(self._create_chunks(medium_issues, 20, "Important Issues"))
+        if low_issues:
+            chunks.extend(self._create_chunks(low_issues, 30, "Other Issues"))
+        
+        if not chunks:
+            print_status(YELLOW, "No issues to synthesize.")
+            return 0
+        
+        print_status(BLUE, f"Processing {len(chunks)} chunks...")
+        
+        results = []
+        for i, (chunk_issues, chunk_name) in enumerate(chunks, 1):
+            print(f"\n{YELLOW}Processing chunk {i}/{len(chunks)}: {chunk_name} ({len(chunk_issues)} issues){NC}")
+            
+            result = self._synthesize_chunk(chunk_issues, chunk_name, i)
+            if result:
+                results.append(result)
+        
+        # Create final synthesis
+        if results:
+            self._create_final_synthesis(results, severity)
+            print_status(GREEN, f"✓ Synthesis complete! Check vibe-check/synthesis/ directory")
+            return 0
+        else:
+            print_status(RED, "✗ Synthesis failed")
+            return 1
+    
+    def _create_chunks(self, issues: List[Dict], chunk_size: int, name: str) -> List[Tuple[List[Dict], str]]:
+        """Split issues into chunks of specified size"""
+        chunks = []
+        for i in range(0, len(issues), chunk_size):
+            chunk = issues[i:i+chunk_size]
+            chunk_name = f"{name} {i//chunk_size + 1}" if len(issues) > chunk_size else name
+            chunks.append((chunk, chunk_name))
+        return chunks
+    
+    def _synthesize_chunk(self, issues: List[Dict], chunk_name: str, chunk_num: int) -> Optional[str]:
+        """Synthesize a single chunk of issues"""
+        # Create synthesis prompt
+        prompt = self._create_synthesis_prompt(issues, chunk_name)
+        
+        # Set up logging
+        self.log_dir.mkdir(exist_ok=True)
+        log_file = self.log_dir / f"synthesis_{chunk_num}_{datetime.now():%Y%m%d_%H%M%S}.log"
+        
+        # Run Claude
+        cmd = ['claude', '--print', prompt, '--output-format', 'stream-json', '--permission-mode', 'acceptEdits', '--verbose']
+        
+        try:
+            with open(log_file, 'w') as log:
+                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+                output_lines = []
+                
+                for line in iter(proc.stdout.readline, ''):
+                    log.write(line)
+                    try:
+                        d = json.loads(line.strip())
+                        if d.get('type') == 'assistant':
+                            for item in d.get('message', {}).get('content', []):
+                                if item.get('type') == 'text' and (text := item.get('text', '').strip()):
+                                    output_lines.append(text)
+                    except: pass
+                
+                proc.wait()
+            
+            if proc.returncode == 0:
+                return '\n'.join(output_lines)
+            else:
+                print_status(RED, f"✗ Chunk {chunk_num} failed")
+                return None
+                
+        except Exception as e:
+            print_status(RED, f"✗ Error processing chunk {chunk_num}: {e}")
+            return None
+    
+    def _create_synthesis_prompt(self, issues: List[Dict], chunk_name: str) -> str:
+        """Create prompt for synthesizing a chunk of issues"""
+        issues_text = ""
+        
+        # Group issues by category
+        by_category = {}
+        for issue in issues:
+            cat = issue['category']
+            if cat not in by_category:
+                by_category[cat] = []
+            by_category[cat].append(issue)
+        
+        for category, cat_issues in by_category.items():
+            issues_text += f"\n## {category.title()} Issues\n"
+            for issue in cat_issues:
+                issues_text += f"\n### {issue['severity']} - {issue['title']}\n"
+                issues_text += f"**File**: {issue['file']}\n"
+                if issue['location']:
+                    issues_text += f"**Location**: {issue['location']}\n"
+                if issue['description']:
+                    issues_text += f"**Description**: {issue['description']}\n"
+                if issue['recommendation']:
+                    issues_text += f"**Recommendation**: {issue['recommendation']}\n"
+        
+        return f"""You are analyzing code review findings to create actionable synthesis reports.
+
+TASK: Synthesize the following {len(issues)} code review issues into actionable insights.
+
+CHUNK: {chunk_name}
+
+ISSUES TO ANALYZE:
+{issues_text}
+
+SYNTHESIS REQUIREMENTS:
+1. **Cross-cutting patterns**: Identify issues that appear across multiple files
+2. **Priority ranking**: Rank issues by business impact and fix effort  
+3. **Root causes**: Look for underlying architectural or process issues
+4. **Quick wins**: Identify high-impact, low-effort fixes
+5. **Dependencies**: Note issues that must be fixed in order
+
+OUTPUT FORMAT:
+# {chunk_name} - Synthesis Report
+
+## Executive Summary
+[2-3 sentences summarizing the most critical findings]
+
+## Priority Issues (Fix First)
+[List 3-5 highest priority issues with business justification]
+
+## Cross-cutting Patterns
+[Issues appearing in multiple files - suggest systemic fixes]
+
+## Quick Wins  
+[High-impact, low-effort improvements]
+
+## Root Cause Analysis
+[Underlying issues causing multiple problems]
+
+## Recommended Action Plan
+[Prioritized steps for addressing these issues]
+
+Keep the report concise and actionable. Focus on business impact over technical details."""
+    
+    def _create_final_synthesis(self, chunk_results: List[str], severity: str) -> None:
+        """Create final synthesis combining all chunk results"""
+        synthesis_dir = self.vibe_dir / "synthesis" / f"priority-{severity}"
+        
+        # Create executive summary
+        exec_summary = synthesis_dir / "EXECUTIVE_SUMMARY.md"
+        action_plan = synthesis_dir / "ACTION_PLAN.md"
+        
+        # Combine chunk results
+        combined_content = "\n\n".join(chunk_results)
+        
+        # Create final synthesis prompt
+        final_prompt = f"""You are creating a final executive synthesis of code review findings.
+
+TASK: Create an executive summary and action plan from the following chunk syntheses.
+
+CHUNK SYNTHESES:
+{combined_content}
+
+Create two outputs:
+
+1. EXECUTIVE_SUMMARY.md - High-level overview for leadership
+2. ACTION_PLAN.md - Prioritized implementation plan for developers
+
+Focus on:
+- Overall codebase health assessment
+- Top 5 critical issues requiring immediate attention  
+- Estimated effort/timeline for fixes
+- Business risk assessment
+- Long-term recommendations
+
+Keep both documents concise and business-focused."""
+        
+        # For now, just create the synthesis files from the chunk results
+        # The final synthesis with Claude can be added later
+        with open(exec_summary, 'w') as f:
+            f.write(f"# Executive Summary\n\nGenerated: {datetime.now()}\n\n")
+            f.write("## Synthesis Results\n\n")
+            f.write(combined_content)
+        
+        with open(action_plan, 'w') as f:
+            f.write(f"# Action Plan\n\nGenerated: {datetime.now()}\n\n")
+            f.write("## Prioritized Recommendations\n\n")
+            f.write("Review the detailed synthesis below for actionable recommendations.\n\n")
+            f.write(combined_content)
+        
+        # Update HOTSPOTS.md and METRICS_SUMMARY.md
+        self._update_system_files()
+    
+    def _update_system_files(self) -> None:
+        """Update HOTSPOTS.md and METRICS_SUMMARY.md with synthesis results"""
+        # This is a placeholder - could be enhanced to automatically update system files
+        # based on synthesis results
+        hotspots_file = self.vibe_dir / "reviews" / "system" / "HOTSPOTS.md"
+        metrics_file = self.vibe_dir / "reviews" / "system" / "METRICS_SUMMARY.md"
+        
+        # Add timestamp to show when synthesis was last run
+        timestamp = f"\n\n*Last synthesis: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*\n"
+        
+        if hotspots_file.exists():
+            with open(hotspots_file, 'a') as f:
+                f.write(timestamp)
+        
+        if metrics_file.exists():
+            with open(metrics_file, 'a') as f:
+                f.write(timestamp)
 
 def main():
     parser = argparse.ArgumentParser(description='Vibe-Check: AI code review', prog='vibe-check')
@@ -714,6 +1144,20 @@ def main():
     
     sub.add_parser('status', help='Show progress')
     
+    # Synthesize command with options
+    s = sub.add_parser('synthesize', help='Synthesize reviews into actionable insights')
+    s.add_argument('--severity', choices=['high', 'medium', 'low'], default='medium',
+                   help='Issue severity level (default: medium)')
+    s.add_argument('--category', choices=['security', 'performance', 'maintainability', 
+                   'consistency', 'best_practices', 'code_smell', 'all'], default='all',
+                   help='Issue category filter (default: all)')
+    s.add_argument('--score-threshold', type=int, metavar='N',
+                   help='Only include files with scores < N')
+    s.add_argument('--critical-only', action='store_true',
+                   help='Only include critical files (scores <= 2)')
+    s.add_argument('--no-interactive', action='store_true',
+                   help='Skip interactive mode selection')
+    
     args = parser.parse_args()
     if not args.cmd: parser.print_help(); return 1
     
@@ -723,6 +1167,14 @@ def main():
     elif args.cmd == 'review': return vc.review()
     elif args.cmd == 'review-all': return vc.review_all(args.delay)
     elif args.cmd == 'status': return vc.status()
+    elif args.cmd == 'synthesize': 
+        return vc.synthesize(
+            severity=args.severity,
+            category=args.category,
+            score_threshold=args.score_threshold,
+            critical_only=args.critical_only,
+            interactive=not args.no_interactive
+        )
     
     return 1
 
@@ -837,9 +1289,96 @@ This shows:
 
 # Show status
 ./vibe-check/scripts/vibe-check status
+
+# Synthesize reviews into actionable insights
+./vibe-check/scripts/vibe-check synthesize [OPTIONS]
+
+# Synthesis options:
+#   --severity {high,medium,low}     Issue severity level (default: medium)
+#   --category {security,performance,maintainability,consistency,best_practices,code_smell,all}
+#                                   Issue category filter (default: all)  
+#   --score-threshold N             Only include files with scores < N
+#   --critical-only                 Only include critical files (scores <= 2)
+#   --no-interactive               Skip interactive mode selection
+
+# Examples:
+./vibe-check/scripts/vibe-check synthesize --severity high --critical-only
+./vibe-check/scripts/vibe-check synthesize --category security --severity medium
+./vibe-check/scripts/vibe-check synthesize --score-threshold 3
 ```
 
-### 6. Important Notes
+### 6. Synthesis Functionality
+
+The `synthesize` command processes completed individual file reviews and creates actionable insights by analyzing patterns across multiple files. This is essential for large codebases where hundreds or thousands of individual issues need to be prioritized and organized.
+
+#### 6.1 How Synthesis Works
+
+1. **Issue Collection**: Scans all completed review files and extracts individual issues
+2. **Filtering**: Applies severity, category, and score-based filters to focus on relevant issues
+3. **Chunking**: Groups issues into manageable chunks (10-30 issues each) for AI processing
+4. **Analysis**: Uses Claude to identify cross-cutting patterns, root causes, and priorities
+5. **Synthesis**: Combines chunk analyses into executive summaries and action plans
+
+#### 6.2 Output Structure
+
+Synthesis creates organized reports in `vibe-check/synthesis/`:
+
+```
+vibe-check/synthesis/
+├── priority-high/           # HIGH severity issues only
+│   ├── EXECUTIVE_SUMMARY.md # Leadership overview
+│   └── ACTION_PLAN.md       # Prioritized implementation steps
+├── priority-medium/         # HIGH + MEDIUM issues
+│   ├── EXECUTIVE_SUMMARY.md
+│   └── ACTION_PLAN.md
+└── priority-low/            # All issues (comprehensive analysis)
+    ├── EXECUTIVE_SUMMARY.md
+    └── ACTION_PLAN.md
+```
+
+#### 6.3 Filtering Strategies
+
+**By Severity:**
+- `high`: Only critical issues requiring immediate attention
+- `medium`: Important issues worth addressing soon (default)
+- `low`: Complete picture including minor improvements
+
+**By Category:**
+- `security`: Focus on vulnerabilities and security concerns
+- `performance`: Focus on efficiency and scalability issues
+- `all`: Cross-cutting analysis across all issue types (default)
+
+**By File Quality:**
+- `--score-threshold 3`: Only files with quality scores below 3
+- `--critical-only`: Only files with scores 1-2 (critical quality issues)
+
+#### 6.4 Interactive Mode
+
+For large codebases (>100 issues), synthesis automatically offers interactive selection:
+
+```
+Found 1,247 total issues:
+  - 23 HIGH severity issues
+  - 156 MEDIUM severity issues
+  - 1,068 LOW severity issues
+
+Select synthesis mode:
+1. Quick (HIGH only) - ~23 issues
+2. Standard (HIGH + MEDIUM) - ~179 issues
+3. Comprehensive (All) - ~1,247 issues
+4. Continue with current filter - 45 issues
+
+Choice: 1
+```
+
+#### 6.5 Best Practices
+
+1. **Start Small**: Begin with `--severity high --critical-only` for immediate priorities
+2. **Category Focus**: Use `--category security` for security audits
+3. **Iterative Approach**: Run synthesis after every 10-20 completed reviews
+4. **Team Coordination**: Share executive summaries with leadership, action plans with developers
+
+### 7. Important Notes
 
 - All files should be created with UTF-8 encoding
 - Use Unix-style line endings (LF)
