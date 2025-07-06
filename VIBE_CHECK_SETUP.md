@@ -372,671 +372,779 @@ If you encounter any errors:
 - Lock conflict: Wait and retry once, then report conflict
 ```
 
-#### 2.7 Create `vibe-check/scripts/populate_master.sh`
+#### 2.7 Create `vibe-check/scripts/populate_master.py`
 
 Create this executable script with the following content:
 
-```bash
-#!/bin/bash
+```python
+#!/usr/bin/env python3
+"""
+populate_master.py - Scan repository and populate the initial _MASTER.json file
+"""
 
-# Vibe-Check Master List Population Script
-# This script scans the repository and populates the initial _MASTER.json file
-# It respects .gitignore patterns and excludes the vibe-check directory itself
+import json
+import subprocess
+import sys
+import os
+from pathlib import Path
+from datetime import datetime
+from typing import Dict, List, Set
 
-set -euo pipefail
+# ANSI color codes
+class Colors:
+    RED = '\033[0;31m'
+    GREEN = '\033[0;32m'
+    YELLOW = '\033[1;33m'
+    NC = '\033[0m'  # No Color
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+def print_status(color: str, message: str):
+    """Print colored status message"""
+    print(f"{color}{message}{Colors.NC}")
 
-# Configuration
-VIBE_CHECK_DIR="vibe-check"
-MASTER_FILE="$VIBE_CHECK_DIR/reviews/_MASTER.json"
-
-# Common source file extensions to include
-SOURCE_EXTENSIONS=(
-    "js" "jsx" "ts" "tsx"           # JavaScript/TypeScript
-    "py" "pyw"                      # Python
-    "java" "kt" "kts"               # Java/Kotlin
-    "c" "cpp" "cc" "cxx" "h" "hpp"  # C/C++
-    "cs"                            # C#
-    "go"                            # Go
-    "rs"                            # Rust
-    "rb"                            # Ruby
-    "php"                           # PHP
-    "swift"                         # Swift
-    "m" "mm"                        # Objective-C
-    "scala"                         # Scala
-    "r" "R"                         # R
-    "lua"                           # Lua
-    "pl" "pm"                       # Perl
-    "sh" "bash" "zsh"               # Shell
-    "sql"                           # SQL
-    "vue"                           # Vue
-    "elm"                           # Elm
-    "ex" "exs"                      # Elixir
-)
-
-# Function to check if file has a valid source extension
-has_valid_extension() {
-    local file="$1"
-    local ext="${file##*.}"
+class VibeCheckPopulator:
+    # Common source file extensions to include
+    SOURCE_EXTENSIONS = {
+        # JavaScript/TypeScript
+        'js', 'jsx', 'ts', 'tsx',
+        # Python
+        'py', 'pyw',
+        # Java/Kotlin
+        'java', 'kt', 'kts',
+        # C/C++
+        'c', 'cpp', 'cc', 'cxx', 'h', 'hpp',
+        # C#
+        'cs',
+        # Go
+        'go',
+        # Rust
+        'rs',
+        # Ruby
+        'rb',
+        # PHP
+        'php',
+        # Swift
+        'swift',
+        # Objective-C
+        'm', 'mm',
+        # Scala
+        'scala',
+        # R
+        'r', 'R',
+        # Lua
+        'lua',
+        # Perl
+        'pl', 'pm',
+        # Shell
+        'sh', 'bash', 'zsh',
+        # SQL
+        'sql',
+        # Vue
+        'vue',
+        # Elm
+        'elm',
+        # Elixir
+        'ex', 'exs'
+    }
     
-    for valid_ext in "${SOURCE_EXTENSIONS[@]}"; do
-        if [[ "$ext" == "$valid_ext" ]]; then
+    # Language mapping
+    LANGUAGE_MAP = {
+        'js': 'JavaScript', 'jsx': 'JavaScript',
+        'ts': 'TypeScript', 'tsx': 'TypeScript',
+        'py': 'Python', 'pyw': 'Python',
+        'java': 'Java',
+        'kt': 'Kotlin', 'kts': 'Kotlin',
+        'c': 'C', 'h': 'C',
+        'cpp': 'C++', 'cc': 'C++', 'cxx': 'C++', 'hpp': 'C++',
+        'cs': 'C#',
+        'go': 'Go',
+        'rs': 'Rust',
+        'rb': 'Ruby',
+        'php': 'PHP',
+        'swift': 'Swift',
+        'm': 'Objective-C', 'mm': 'Objective-C',
+        'scala': 'Scala',
+        'r': 'R', 'R': 'R',
+        'lua': 'Lua',
+        'pl': 'Perl', 'pm': 'Perl',
+        'sh': 'Shell', 'bash': 'Shell', 'zsh': 'Shell',
+        'sql': 'SQL',
+        'vue': 'Vue',
+        'elm': 'Elm',
+        'ex': 'Elixir', 'exs': 'Elixir'
+    }
+    
+    def __init__(self):
+        self.vibe_check_dir = Path("vibe-check")
+        self.master_file = self.vibe_check_dir / "reviews" / "_MASTER.json"
+        self.use_git = False
+        self.force_no_git = os.environ.get('FORCE_NO_GIT', '0') == '1'
+    
+    def check_prerequisites(self) -> bool:
+        """Check if vibe-check directory exists"""
+        if not self.vibe_check_dir.exists():
+            print_status(Colors.RED, "Error: vibe-check directory not found!")
+            print("Please run the setup script first to create the vibe-check structure.")
+            return False
+        return True
+    
+    def detect_git(self) -> bool:
+        """Check if git is available and we're in a git repository"""
+        if self.force_no_git:
+            print_status(Colors.YELLOW, "Forced non-git mode. Using find command.")
+            return False
+        
+        try:
+            # Check if git is available
+            subprocess.run(['git', '--version'], capture_output=True, check=True)
+            # Check if we're in a git repo
+            subprocess.run(['git', 'rev-parse', '--git-dir'], capture_output=True, check=True)
+            print_status(Colors.GREEN, "Git repository detected. Using git ls-files to respect .gitignore")
+            return True
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            print_status(Colors.YELLOW, "Not a git repository or git not available. Using find command.")
+            return False
+    
+    def has_valid_extension(self, file_path: Path) -> bool:
+        """Check if file has a valid source extension"""
+        return file_path.suffix[1:] in self.SOURCE_EXTENSIONS
+    
+    def count_lines(self, file_path: Path) -> int:
+        """Count lines of code (simple line count)"""
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                return sum(1 for _ in f)
+        except Exception:
             return 0
-        fi
-    done
-    return 1
-}
-
-# Function to count lines of code (excluding empty lines and comments)
-count_lines() {
-    local file="$1"
-    # Simple line count - can be enhanced for more accuracy
-    wc -l < "$file" | tr -d ' '
-}
-
-# Function to detect language from file extension
-detect_language() {
-    local file="$1"
-    local ext="${file##*.}"
     
-    case "$ext" in
-        js|jsx) echo "JavaScript";;
-        ts|tsx) echo "TypeScript";;
-        py|pyw) echo "Python";;
-        java) echo "Java";;
-        kt|kts) echo "Kotlin";;
-        c|h) echo "C";;
-        cpp|cc|cxx|hpp) echo "C++";;
-        cs) echo "C#";;
-        go) echo "Go";;
-        rs) echo "Rust";;
-        rb) echo "Ruby";;
-        php) echo "PHP";;
-        swift) echo "Swift";;
-        m|mm) echo "Objective-C";;
-        scala) echo "Scala";;
-        r|R) echo "R";;
-        lua) echo "Lua";;
-        pl|pm) echo "Perl";;
-        sh|bash|zsh) echo "Shell";;
-        sql) echo "SQL";;
-        vue) echo "Vue";;
-        elm) echo "Elm";;
-        ex|exs) echo "Elixir";;
-        *) echo "Unknown";;
-    esac
-}
-
-# Check if vibe-check directory exists
-if [[ ! -d "$VIBE_CHECK_DIR" ]]; then
-    echo -e "${RED}Error: vibe-check directory not found!${NC}"
-    echo "Please run the setup script first to create the vibe-check structure."
-    exit 1
-fi
-
-# Check if git is available and we're in a git repository
-# For testing, we can force non-git mode by setting FORCE_NO_GIT=1
-if [[ "${FORCE_NO_GIT:-0}" == "1" ]]; then
-    USE_GIT=false
-    echo -e "${YELLOW}Forced non-git mode. Using find command.${NC}"
-elif command -v git &> /dev/null && git rev-parse --git-dir &> /dev/null 2>/dev/null; then
-    USE_GIT=true
-    echo -e "${GREEN}Git repository detected. Using git ls-files to respect .gitignore${NC}"
-else
-    USE_GIT=false
-    echo -e "${YELLOW}Not a git repository or git not available. Using find command.${NC}"
-fi
-
-# Create temporary file for JSON content
-TEMP_FILE=$(mktemp)
-
-# Initialize JSON structure
-cat > "$TEMP_FILE" << EOF
-{
-  "metadata": {
-    "version": "1.0",
-    "description": "Vibe-Check Master Review Ledger - Single source of truth for all code review progress",
-    "generated": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
-    "total_files": 0,
-    "total_loc": 0,
-    "status_legend": {
-      "not_reviewed": "File has not been reviewed yet",
-      "in_progress": "Review is currently in progress",
-      "completed": "Review has been completed",
-      "needs_update": "Source file changed, review needs update"
-    },
-    "score_range": {
-      "min": 1,
-      "max": 5,
-      "description": "1 = Critical issues, 5 = Excellent"
-    }
-  },
-  "files": {
-EOF
-
-# Collect source files
-echo -e "\n${GREEN}Scanning for source files...${NC}"
-file_count=0
-total_loc=0
-
-# Function to process a file
-process_file() {
-    local file="$1"
+    def detect_language(self, file_path: Path) -> str:
+        """Detect language from file extension"""
+        ext = file_path.suffix[1:]
+        return self.LANGUAGE_MAP.get(ext, 'Unknown')
     
-    # Skip if file doesn't exist or is a directory
-    if [[ ! -f "$file" ]] || [[ -d "$file" ]]; then
-        return
-    fi
+    def get_git_files(self) -> List[Path]:
+        """Get list of tracked files from git"""
+        try:
+            result = subprocess.run(
+                ['git', 'ls-files'],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            files = []
+            for line in result.stdout.strip().split('\n'):
+                if line and not line.startswith(str(self.vibe_check_dir) + '/'):
+                    files.append(Path(line))
+            return files
+        except subprocess.CalledProcessError:
+            return []
     
-    # Skip if not a source file
-    if ! has_valid_extension "$file"; then
-        return
-    fi
+    def get_all_files(self) -> List[Path]:
+        """Get all files using pathlib (non-git mode)"""
+        files = []
+        exclude_dirs = {
+            '.git', 'node_modules', 'venv', 'env', '__pycache__',
+            'build', 'dist', 'target', 'vendor', 'coverage',
+            str(self.vibe_check_dir)
+        }
+        
+        for path in Path('.').rglob('*'):
+            # Skip if any parent directory is in exclude list
+            if any(part.startswith('.') or part in exclude_dirs for part in path.parts):
+                continue
+            
+            if path.is_file() and not path.name.startswith('.'):
+                # Make path relative to current directory
+                try:
+                    relative_path = path.relative_to('.')
+                    files.append(relative_path)
+                except ValueError:
+                    pass
+        
+        return files
     
-    # Get file info
-    local lang=$(detect_language "$file")
-    local loc=$(count_lines "$file")
+    def create_master_data(self, files: List[Path]) -> Dict:
+        """Create the master JSON structure"""
+        data = {
+            "metadata": {
+                "version": "1.0",
+                "description": "Vibe-Check Master Review Ledger - Single source of truth for all code review progress",
+                "generated": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "total_files": 0,
+                "total_loc": 0,
+                "status_legend": {
+                    "not_reviewed": "File has not been reviewed yet",
+                    "in_progress": "Review is currently in progress",
+                    "completed": "Review has been completed",
+                    "needs_update": "Source file changed, review needs update"
+                },
+                "score_range": {
+                    "min": 1,
+                    "max": 5,
+                    "description": "1 = Critical issues, 5 = Excellent"
+                }
+            },
+            "files": {}
+        }
+        
+        file_count = 0
+        total_loc = 0
+        
+        print(f"\n{Colors.GREEN}Scanning for source files...{Colors.NC}")
+        
+        for file_path in files:
+            if not self.has_valid_extension(file_path):
+                continue
+            
+            lang = self.detect_language(file_path)
+            loc = self.count_lines(file_path)
+            
+            file_count += 1
+            total_loc += loc
+            
+            data["files"][str(file_path)] = {
+                "language": lang,
+                "loc": loc,
+                "status": "not_reviewed",
+                "review_date": None,
+                "reviewer": None,
+                "scores": {
+                    "security": None,
+                    "performance": None,
+                    "maintainability": None,
+                    "consistency": None,
+                    "best_practices": None,
+                    "code_smell": None
+                },
+                "open_issues": 0,
+                "dependency_count": 0
+            }
+            
+            # Progress indicator
+            if file_count % 10 == 0:
+                print(f"\rProcessed {file_count} files...", end='', flush=True)
+        
+        print("\n")
+        
+        # Update metadata
+        data["metadata"]["total_files"] = file_count
+        data["metadata"]["total_loc"] = total_loc
+        
+        return data
     
-    # Add to total
-    ((file_count++))
-    ((total_loc+=loc))
-    
-    # Add comma if not first file
-    if [[ $file_count -gt 1 ]]; then
-        echo "," >> "$TEMP_FILE"
-    fi
-    
-    # Add JSON entry for file
-    cat >> "$TEMP_FILE" << EOF
-    "$file": {
-      "language": "$lang",
-      "loc": $loc,
-      "status": "not_reviewed",
-      "review_date": null,
-      "reviewer": null,
-      "scores": {
-        "security": null,
-        "performance": null,
-        "maintainability": null,
-        "consistency": null,
-        "best_practices": null,
-        "code_smell": null
-      },
-      "open_issues": 0,
-      "dependency_count": 0
-    }
-EOF
-    
-    # Progress indicator
-    if [[ $((file_count % 10)) -eq 0 ]]; then
-        echo -ne "\rProcessed $file_count files..."
-    fi
-}
+    def run(self):
+        """Main execution flow"""
+        # Check prerequisites
+        if not self.check_prerequisites():
+            return 1
+        
+        # Detect git mode
+        self.use_git = self.detect_git()
+        
+        # Get list of files
+        if self.use_git:
+            files = self.get_git_files()
+        else:
+            files = self.get_all_files()
+        
+        # Create master data
+        data = self.create_master_data(files)
+        
+        # Save to file
+        with open(self.master_file, 'w') as f:
+            json.dump(data, f, indent=2)
+        
+        # Summary
+        print_status(Colors.GREEN, "✓ Master list populated successfully!")
+        print(f"  Files found: {Colors.YELLOW}{data['metadata']['total_files']}{Colors.NC}")
+        print(f"  Total LOC: {Colors.YELLOW}{data['metadata']['total_loc']}{Colors.NC}")
+        print(f"  Output: {Colors.YELLOW}{self.master_file}{Colors.NC}")
+        print()
+        print("Next steps:")
+        print(f"1. Review the generated list in {self.master_file}")
+        print("2. Use the reviewer AI with REVIEWER_INSTRUCTIONS.md to process each file")
+        print("3. The AI will update this master list as reviews are completed")
+        
+        return 0
 
-if [[ "$USE_GIT" == true ]]; then
-    # Use git ls-files to get all tracked files
-    while IFS= read -r file; do
-        # Skip vibe-check directory
-        if [[ "$file" == "$VIBE_CHECK_DIR/"* ]]; then
-            continue
-        fi
-        process_file "$file"
-    done < <(git ls-files)
-else
-    # Use find command, excluding common directories
-    while IFS= read -r file; do
-        # Remove leading ./ from path
-        file="${file#./}"
-        process_file "$file"
-    done < <(find . -type f \
-        -not -path "./$VIBE_CHECK_DIR/*" \
-        -not -path "*/\.*" \
-        -not -path "*/node_modules/*" \
-        -not -path "*/venv/*" \
-        -not -path "*/env/*" \
-        -not -path "*/__pycache__/*" \
-        -not -path "*/build/*" \
-        -not -path "*/dist/*" \
-        -not -path "*/target/*" \
-        -not -path "*/vendor/*" \
-        -not -path "*/coverage/*" \
-        -not -path "*/.git/*")
-fi
+def main():
+    """Main entry point"""
+    populator = VibeCheckPopulator()
+    sys.exit(populator.run())
 
-echo -e "\n"
-
-# Close JSON structure
-echo "" >> "$TEMP_FILE"
-echo "  }" >> "$TEMP_FILE"
-echo "}" >> "$TEMP_FILE"
-
-# Now update the metadata with actual counts
-# Create a new temp file with updated metadata
-TEMP_FILE2=$(mktemp)
-awk -v files="$file_count" -v loc="$total_loc" '
-    /"total_files":/ { sub(/: [0-9]+/, ": " files) }
-    /"total_loc":/ { sub(/: [0-9]+/, ": " loc) }
-    { print }
-' "$TEMP_FILE" > "$TEMP_FILE2"
-
-# Move temp file to actual location
-mv "$TEMP_FILE2" "$MASTER_FILE"
-rm -f "$TEMP_FILE"
-
-# Summary
-echo -e "${GREEN}✓ Master list populated successfully!${NC}"
-echo -e "  Files found: ${YELLOW}$file_count${NC}"
-echo -e "  Total LOC: ${YELLOW}$total_loc${NC}"
-echo -e "  Output: ${YELLOW}$MASTER_FILE${NC}"
-echo ""
-echo "Next steps:"
-echo "1. Review the generated list in $MASTER_FILE"
-echo "2. Use the reviewer AI with REVIEWER_INSTRUCTIONS.md to process each file"
-echo "3. The AI will update this master list as reviews are completed"
+if __name__ == "__main__":
+    main()
 ```
 
 After creating this file, make it executable:
 ```bash
-chmod +x vibe-check/scripts/populate_master.sh
+chmod +x vibe-check/scripts/populate_master.py
 ```
 
-#### 2.8 Create `vibe-check/scripts/run_single_review.sh`
+#### 2.8 Create `vibe-check/scripts/run_single_review.py`
 
 Create this executable script with the following content:
 
-```bash
-#!/bin/bash
+```python
+#!/usr/bin/env python3
+"""
+run_single_review.py - Run a single file review using Claude Code CLI
+"""
 
-# Vibe-Check Single Review Runner
-# This script runs a single file review using Claude Code SDK
-# It reads the REVIEWER_INSTRUCTIONS.md and executes one review cycle
-
-set -euo pipefail
-
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
-
-# Configuration
-VIBE_CHECK_DIR="vibe-check"
-REVIEWER_INSTRUCTIONS="$VIBE_CHECK_DIR/prompts/REVIEWER_INSTRUCTIONS.md"
-MASTER_FILE="$VIBE_CHECK_DIR/reviews/_MASTER.json"
-LOG_DIR="$VIBE_CHECK_DIR/logs"
-
-# Create logs directory if it doesn't exist
-mkdir -p "$LOG_DIR"
-
-# Generate timestamp for this run
-TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-LOG_FILE="$LOG_DIR/review_${TIMESTAMP}.log"
-
-# Function to print colored messages
-print_status() {
-    local color=$1
-    local message=$2
-    echo -e "${color}${message}${NC}"
-}
-
-# Check if Claude Code is installed
-if ! command -v claude &> /dev/null; then
-    print_status "$RED" "Error: Claude Code CLI not found!"
-    echo "Please install it with: npm install -g @anthropic-ai/claude-code"
-    exit 1
-fi
-
-# Check authentication method
-if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
-    print_status "$GREEN" "✓ Using Anthropic API key from environment"
-else
-    print_status "$YELLOW" "No ANTHROPIC_API_KEY found - will attempt to use Claude subscription"
-    echo "Make sure you're signed into Claude CLI"
-fi
-
-# Check if vibe-check structure exists
-if [[ ! -f "$REVIEWER_INSTRUCTIONS" ]]; then
-    print_status "$RED" "Error: $REVIEWER_INSTRUCTIONS not found!"
-    echo "Please run the vibe-check setup first."
-    exit 1
-fi
-
-if [[ ! -f "$MASTER_FILE" ]]; then
-    print_status "$RED" "Error: $MASTER_FILE not found!"
-    echo "Please run populate_master.sh first."
-    exit 1
-fi
-
-# Find and lock the next file to review
-# Priority: 1) in_progress (resume failed), 2) not_reviewed
-FILE_TO_REVIEW=$(python3 -c "
 import json
-with open('$MASTER_FILE', 'r') as f:
-    data = json.load(f)
-    # First check for any in_progress files (failed previous runs)
-    for file_path, info in data['files'].items():
-        if info['status'] == 'in_progress':
-            print(file_path)
-            exit(0)
-    # Then check for not_reviewed files
-    for file_path, info in data['files'].items():
-        if info['status'] == 'not_reviewed':
-            print(file_path)
-            exit(0)
-" || echo "")
+import subprocess
+import sys
+import os
+from pathlib import Path
+from datetime import datetime
+from typing import Optional, Dict, Any, Tuple
+import time
+import re
 
-if [[ -z "$FILE_TO_REVIEW" ]]; then
-    print_status "$GREEN" "All files have been reviewed! No files left to process."
-    exit 0
-fi
+# ANSI color codes
+class Colors:
+    RED = '\033[0;31m'
+    GREEN = '\033[0;32m'
+    YELLOW = '\033[1;33m'
+    BLUE = '\033[0;34m'
+    NC = '\033[0m'  # No Color
 
-# Count remaining files
-FILES_TO_REVIEW=$(python3 -c "
-import json
-with open('$MASTER_FILE', 'r') as f:
-    data = json.load(f)
-    unreviewed = [f for f, info in data['files'].items() if info['status'] == 'not_reviewed']
-    print(len(unreviewed))
-")
+def print_status(color: str, message: str):
+    """Print colored status message"""
+    print(f"{color}{message}{Colors.NC}")
 
-print_status "$BLUE" "=== Starting Vibe-Check Single Review ==="
-print_status "$YELLOW" "File to review: $FILE_TO_REVIEW"
-print_status "$YELLOW" "Files remaining to review: $FILES_TO_REVIEW"
-print_status "$YELLOW" "Logging to: $LOG_FILE"
-print_status "$YELLOW" "Permission mode: Auto-accepting file edits"
-echo ""
-
-# Check if file is already in_progress or needs to be marked
-FILE_STATUS=$(python3 -c "
-import json
-with open('$MASTER_FILE', 'r') as f:
-    data = json.load(f)
-print(data['files']['$FILE_TO_REVIEW']['status'])
-")
-
-if [[ "$FILE_STATUS" == "in_progress" ]]; then
-    print_status "$YELLOW" "⚠ Resuming previously failed review for $FILE_TO_REVIEW"
-else
-    # Mark file as in_progress
-    python3 -c "
-import json
-with open('$MASTER_FILE', 'r') as f:
-    data = json.load(f)
-data['files']['$FILE_TO_REVIEW']['status'] = 'in_progress'
-with open('$MASTER_FILE', 'w') as f:
-    json.dump(data, f, indent=2)
-"
-    print_status "$GREEN" "✓ Marked $FILE_TO_REVIEW as in_progress"
-fi
-
-# Read the reviewer instructions
-INSTRUCTIONS=$(cat "$REVIEWER_INSTRUCTIONS")
-
-# Create the prompt for Claude with specific file
-PROMPT="You have access to a vibe-check directory at path 'vibe-check/' containing review artifacts.
+class VibeCheckReviewer:
+    def __init__(self):
+        self.vibe_check_dir = Path("vibe-check")
+        self.master_file = self.vibe_check_dir / "reviews" / "_MASTER.json"
+        self.instructions_file = self.vibe_check_dir / "prompts" / "REVIEWER_INSTRUCTIONS.md"
+        self.log_dir = self.vibe_check_dir / "logs"
+        
+        # Create logs directory if it doesn't exist
+        self.log_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Generate log file name
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.log_file = self.log_dir / f"review_{timestamp}.log"
+    
+    def check_prerequisites(self) -> bool:
+        """Check if all required files and tools are available"""
+        # Check if Claude CLI is installed
+        try:
+            subprocess.run(["claude", "--version"], capture_output=True, check=True)
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            print_status(Colors.RED, "Error: Claude Code CLI not found!")
+            print("Please install it with: npm install -g @anthropic-ai/claude-code")
+            return False
+        
+        # Check authentication
+        if os.environ.get("ANTHROPIC_API_KEY"):
+            print_status(Colors.GREEN, "✓ Using Anthropic API key from environment")
+        else:
+            print_status(Colors.YELLOW, "No ANTHROPIC_API_KEY found - will attempt to use Claude subscription")
+            print("Make sure you're signed into Claude CLI")
+        
+        # Check if vibe-check structure exists
+        if not self.instructions_file.exists():
+            print_status(Colors.RED, f"Error: {self.instructions_file} not found!")
+            print("Please run the vibe-check setup first.")
+            return False
+        
+        if not self.master_file.exists():
+            print_status(Colors.RED, f"Error: {self.master_file} not found!")
+            print("Please run populate_master.py first.")
+            return False
+        
+        return True
+    
+    def load_master_data(self) -> Dict[str, Any]:
+        """Load the master JSON file"""
+        with open(self.master_file, 'r') as f:
+            return json.load(f)
+    
+    def save_master_data(self, data: Dict[str, Any]):
+        """Save the master JSON file"""
+        with open(self.master_file, 'w') as f:
+            json.dump(data, f, indent=2)
+    
+    def find_next_file(self) -> Optional[str]:
+        """Find next file to review (in_progress first, then not_reviewed)"""
+        data = self.load_master_data()
+        
+        # First check for any in_progress files (failed previous runs)
+        for file_path, info in data['files'].items():
+            if info['status'] == 'in_progress':
+                return file_path
+        
+        # Then check for not_reviewed files
+        for file_path, info in data['files'].items():
+            if info['status'] == 'not_reviewed':
+                return file_path
+        
+        return None
+    
+    def count_remaining_files(self) -> int:
+        """Count how many files are left to review"""
+        data = self.load_master_data()
+        return sum(1 for info in data['files'].values() 
+                  if info['status'] in ['not_reviewed', 'in_progress'])
+    
+    def mark_file_status(self, file_path: str, status: str):
+        """Update file status in master JSON"""
+        data = self.load_master_data()
+        data['files'][file_path]['status'] = status
+        self.save_master_data(data)
+    
+    def get_file_status(self, file_path: str) -> str:
+        """Get current status of a file"""
+        data = self.load_master_data()
+        return data['files'][file_path]['status']
+    
+    def create_prompt(self, file_path: str) -> str:
+        """Create the prompt for Claude"""
+        with open(self.instructions_file, 'r') as f:
+            instructions = f.read()
+        
+        prompt = f"""You have access to a vibe-check directory at path 'vibe-check/' containing review artifacts.
 
 You are tasked with reviewing the following file:
-FILE_PATH: $FILE_TO_REVIEW
+FILE_PATH: {file_path}
 
 Please follow these instructions exactly:
 
-$INSTRUCTIONS"
-
-# Run Claude with the review instructions
-# Using --print for non-interactive mode
-# Using text output format for direct visibility
-# Tee to both stdout and log file for visibility and record keeping
-print_status "$BLUE" "Launching Claude Code for review..."
-echo "----------------------------------------"
-
-# Execute Claude and capture exit code
-# Use stream-json output to get both real-time output and cost information
-# Use acceptEdits permission mode to allow file modifications without prompts
-set +e
-claude --print "$PROMPT" \
-    --output-format stream-json \
-    --permission-mode acceptEdits \
-    --verbose 2>&1 | tee "$LOG_FILE" | while IFS= read -r line; do
-    # Try to parse as JSON - be silent about non-JSON lines
-    if echo "$line" | python3 -c "import json, sys; json.load(sys.stdin)" 2>/dev/null; then
-        # It's valid JSON - extract and display only assistant text messages
-        OUTPUT=$(echo "$line" | python3 -c "
-import json, sys
-try:
-    data = json.load(sys.stdin)
-    if data.get('type') == 'assistant':
-        # Extract text content from assistant messages
-        msg = data.get('message', {})
-        content = msg.get('content', [])
-        for item in content:
-            if item.get('type') == 'text':
-                text = item.get('text', '').strip()
-                if text:  # Only print non-empty text
-                    print(text)
-                    print('---')  # Add separator after each response
-    elif data.get('type') == 'result':
-        # Don't print the result JSON here - we'll handle it later
-        pass
-except:
-    pass  # Silently ignore any parsing errors
-" 2>/dev/null || true)
+{instructions}"""
         
-        if [[ -n "$OUTPUT" ]]; then
-            echo "$OUTPUT"
-        fi
-    fi
-    # Removed the else clause - don't display non-JSON lines
-done
-
-CLAUDE_EXIT_CODE=${PIPESTATUS[0]}
-set -e
-
-echo "----------------------------------------"
-
-# Check exit code
-if [[ $CLAUDE_EXIT_CODE -eq 0 ]]; then
-    print_status "$GREEN" "✓ Review completed successfully!"
+        return prompt
     
-    # Mark file as completed
-    python3 -c "
-import json
-with open('$MASTER_FILE', 'r') as f:
-    data = json.load(f)
-data['files']['$FILE_TO_REVIEW']['status'] = 'completed'
-with open('$MASTER_FILE', 'w') as f:
-    json.dump(data, f, indent=2)
-"
-    print_status "$GREEN" "✓ Marked $FILE_TO_REVIEW as completed"
-    
-    # Try to extract cost information from the result JSON in log file
-    # Look for the last line with type: "result" in the log
-    RESULT_JSON=$(grep '"type": *"result"' "$LOG_FILE" 2>/dev/null | tail -1 || echo "")
-    
-    if [[ -n "$RESULT_JSON" ]]; then
-        COST_INFO=$(echo "$RESULT_JSON" | python3 -c "
-import json, sys
-try:
-    data = json.load(sys.stdin)
-    cost = data.get('total_cost_usd', 'N/A')
-    duration = data.get('duration_ms', 'N/A')
-    turns = data.get('num_turns', 'N/A')
-    
-    if cost != 'N/A':
-        print(f'Cost: \${cost:.4f} USD')
-    else:
-        print('Cost: Not available')
-    
-    if duration != 'N/A':
-        duration_sec = duration / 1000
-        print(f'Duration: {duration_sec:.1f} seconds')
-    
-    if turns != 'N/A':
-        print(f'Turns: {turns}')
-except:
-    print('Cost information not available')
-" 2>/dev/null || echo "Cost information not available")
+    def parse_claude_output(self, log_content: str) -> Dict[str, Any]:
+        """Extract cost and other metrics from Claude's output"""
+        # Find the last result JSON in the log
+        result_lines = [line for line in log_content.split('\n') 
+                       if '"type": "result"' in line or '"type":"result"' in line]
         
-        echo ""
-        print_status "$BLUE" "=== Execution Summary ==="
-        echo "$COST_INFO"
-    fi
+        if not result_lines:
+            return {}
+        
+        try:
+            result_json = json.loads(result_lines[-1])
+            cost = result_json.get('total_cost_usd', 'N/A')
+            duration = result_json.get('duration_ms', 'N/A')
+            turns = result_json.get('num_turns', 'N/A')
+            
+            return {
+                'cost': cost,
+                'duration': duration,
+                'turns': turns
+            }
+        except json.JSONDecodeError:
+            return {}
     
-    # Check how many files are left
-    REMAINING=$(python3 -c "
-import json
-with open('$MASTER_FILE', 'r') as f:
-    data = json.load(f)
-    unreviewed = [f for f, info in data['files'].items() if info['status'] == 'not_reviewed']
-    print(len(unreviewed))
-")
+    def run_claude_review(self, file_path: str) -> Tuple[bool, str]:
+        """Execute Claude with the review prompt"""
+        prompt = self.create_prompt(file_path)
+        
+        # Build the Claude command
+        cmd = [
+            'claude',
+            '--print', prompt,
+            '--output-format', 'stream-json',
+            '--permission-mode', 'acceptEdits',
+            '--verbose'
+        ]
+        
+        print_status(Colors.BLUE, "Launching Claude Code for review...")
+        print("----------------------------------------")
+        
+        # Open log file for writing
+        with open(self.log_file, 'w') as log:
+            # Run Claude and capture output
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1
+            )
+            
+            log_content = []
+            
+            # Process output line by line
+            for line in iter(process.stdout.readline, ''):
+                # Write to log file
+                log.write(line)
+                log.flush()
+                log_content.append(line.strip())
+                
+                # Try to parse as JSON for display
+                try:
+                    data = json.loads(line.strip())
+                    if data.get('type') == 'assistant':
+                        # Extract text content from assistant messages
+                        message = data.get('message', {})
+                        content = message.get('content', [])
+                        for item in content:
+                            if item.get('type') == 'text':
+                                text = item.get('text', '').strip()
+                                if text:
+                                    print(text)
+                                    print('---')
+                except json.JSONDecodeError:
+                    # Not JSON, skip
+                    pass
+            
+            # Wait for process to complete
+            process.wait()
+            
+        print("----------------------------------------")
+        
+        # Check exit code
+        success = process.returncode == 0
+        log_text = '\n'.join(log_content)
+        
+        return success, log_text
     
-    echo ""
-    print_status "$YELLOW" "Files remaining to review: $REMAINING"
-    exit 0
-else
-    print_status "$RED" "✗ Review failed with exit code: $CLAUDE_EXIT_CODE"
-    print_status "$RED" "Check the log file for details: $LOG_FILE"
-    
-    # Mark file back to not_reviewed on failure
-    python3 -c "
-import json
-with open('$MASTER_FILE', 'r') as f:
-    data = json.load(f)
-data['files']['$FILE_TO_REVIEW']['status'] = 'not_reviewed'
-with open('$MASTER_FILE', 'w') as f:
-    json.dump(data, f, indent=2)
-"
-    print_status "$YELLOW" "⚠ Reverted $FILE_TO_REVIEW back to not_reviewed status"
-    
-    exit $CLAUDE_EXIT_CODE
-fi
+    def run(self):
+        """Main execution flow"""
+        # Check prerequisites
+        if not self.check_prerequisites():
+            return 1
+        
+        # Find next file to review
+        file_to_review = self.find_next_file()
+        if not file_to_review:
+            print_status(Colors.GREEN, "All files have been reviewed! No files left to process.")
+            return 0
+        
+        # Count remaining files
+        remaining = self.count_remaining_files()
+        
+        print_status(Colors.BLUE, "=== Starting Vibe-Check Single Review ===")
+        print_status(Colors.YELLOW, f"File to review: {file_to_review}")
+        print_status(Colors.YELLOW, f"Files remaining to review: {remaining}")
+        print_status(Colors.YELLOW, f"Logging to: {self.log_file}")
+        print_status(Colors.YELLOW, "Permission mode: Auto-accepting file edits")
+        print()
+        
+        # Check if file is already in progress
+        current_status = self.get_file_status(file_to_review)
+        if current_status == 'in_progress':
+            print_status(Colors.YELLOW, f"⚠ Resuming previously failed review for {file_to_review}")
+        else:
+            # Mark as in progress
+            self.mark_file_status(file_to_review, 'in_progress')
+            print_status(Colors.GREEN, f"✓ Marked {file_to_review} as in_progress")
+        
+        # Run the review
+        success, log_content = self.run_claude_review(file_to_review)
+        
+        if success:
+            print_status(Colors.GREEN, "✓ Review completed successfully!")
+            
+            # Mark as completed
+            self.mark_file_status(file_to_review, 'completed')
+            print_status(Colors.GREEN, f"✓ Marked {file_to_review} as completed")
+            
+            # Extract and display cost information
+            metrics = self.parse_claude_output(log_content)
+            if metrics:
+                print()
+                print_status(Colors.BLUE, "=== Execution Summary ===")
+                
+                if metrics['cost'] != 'N/A':
+                    print(f"Cost: ${metrics['cost']:.4f} USD")
+                else:
+                    print("Cost: Not available")
+                
+                if metrics['duration'] != 'N/A':
+                    duration_sec = metrics['duration'] / 1000
+                    print(f"Duration: {duration_sec:.1f} seconds")
+                
+                if metrics['turns'] != 'N/A':
+                    print(f"Turns: {metrics['turns']}")
+            
+            # Check remaining files
+            remaining = self.count_remaining_files()
+            print()
+            print_status(Colors.YELLOW, f"Files remaining to review: {remaining}")
+            
+            return 0
+        else:
+            print_status(Colors.RED, "✗ Review failed!")
+            print_status(Colors.RED, f"Check the log file for details: {self.log_file}")
+            
+            # Revert to not_reviewed
+            self.mark_file_status(file_to_review, 'not_reviewed')
+            print_status(Colors.YELLOW, f"⚠ Reverted {file_to_review} back to not_reviewed status")
+            
+            return 1
+
+def main():
+    """Main entry point"""
+    reviewer = VibeCheckReviewer()
+    sys.exit(reviewer.run())
+
+if __name__ == "__main__":
+    main()
 ```
 
 After creating this file, make it executable:
 ```bash
-chmod +x vibe-check/scripts/run_single_review.sh
+chmod +x vibe-check/scripts/run_single_review.py
 ```
 
-#### 2.9 Create `vibe-check/scripts/review_all.sh`
+#### 2.9 Create `vibe-check/scripts/review_all.py`
 
 Create this executable script with the following content:
 
-```bash
-#!/bin/bash
+```python
+#!/usr/bin/env python3
+"""
+review_all.py - Run reviews for all unreviewed files using run_single_review
+"""
 
-# Vibe-Check Review All Files
-# This script runs reviews for all unreviewed files using run_single_review.sh
-
-set -euo pipefail
-
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
-
-# Configuration
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SINGLE_REVIEW_SCRIPT="$SCRIPT_DIR/run_single_review.sh"
-MASTER_FILE="vibe-check/reviews/_MASTER.json"
-
-# Function to print colored messages
-print_status() {
-    local color=$1
-    local message=$2
-    echo -e "${color}${message}${NC}"
-}
-
-# Check if single review script exists
-if [[ ! -x "$SINGLE_REVIEW_SCRIPT" ]]; then
-    print_status "$RED" "Error: $SINGLE_REVIEW_SCRIPT not found or not executable!"
-    exit 1
-fi
-
-# Check authentication method
-if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
-    print_status "$GREEN" "✓ Using Anthropic API key from environment"
-else
-    print_status "$YELLOW" "No ANTHROPIC_API_KEY found - will use Claude subscription"
-    echo "Make sure you're signed into Claude CLI"
-fi
-
-print_status "$BLUE" "=== Vibe-Check Batch Review Process ==="
-echo ""
-
-# Counter for tracking
-TOTAL_REVIEWED=0
-FAILED_REVIEWS=0
-
-# Loop until all files are reviewed or an error occurs
-while true; do
-    # Check remaining files
-    if [[ ! -f "$MASTER_FILE" ]]; then
-        print_status "$RED" "Error: $MASTER_FILE not found!"
-        exit 1
-    fi
-    
-    REMAINING=$(python3 -c "
+import subprocess
+import sys
+import os
+import time
+from pathlib import Path
 import json
-with open('$MASTER_FILE', 'r') as f:
-    data = json.load(f)
-    unreviewed = [f for f, info in data['files'].items() if info['status'] == 'not_reviewed']
-    print(len(unreviewed))
-")
-    
-    if [[ "$REMAINING" -eq 0 ]]; then
-        print_status "$GREEN" "✓ All files have been reviewed!"
-        break
-    fi
-    
-    print_status "$YELLOW" "Files remaining: $REMAINING"
-    print_status "$BLUE" "Starting review #$((TOTAL_REVIEWED + 1))..."
-    echo ""
-    
-    # Run single review
-    if "$SINGLE_REVIEW_SCRIPT"; then
-        ((TOTAL_REVIEWED++))
-        print_status "$GREEN" "✓ Review #$TOTAL_REVIEWED completed successfully"
-    else
-        ((FAILED_REVIEWS++))
-        print_status "$RED" "✗ Review failed! Stopping batch process."
-        break
-    fi
-    
-    # Add a small delay between reviews to avoid rate limiting
-    if [[ "$REMAINING" -gt 1 ]]; then
-        print_status "$YELLOW" "Waiting 5 seconds before next review..."
-        sleep 5
-    fi
-    
-    echo ""
-    echo "========================================"
-    echo ""
-done
+from typing import Dict, Any
 
-# Final summary
-echo ""
-print_status "$BLUE" "=== Batch Review Summary ==="
-print_status "$GREEN" "Total files reviewed: $TOTAL_REVIEWED"
-if [[ "$FAILED_REVIEWS" -gt 0 ]]; then
-    print_status "$RED" "Failed reviews: $FAILED_REVIEWS"
-    exit 1
-else
-    print_status "$GREEN" "All reviews completed successfully!"
-    exit 0
-fi
+# ANSI color codes
+class Colors:
+    RED = '\033[0;31m'
+    GREEN = '\033[0;32m'
+    YELLOW = '\033[1;33m'
+    BLUE = '\033[0;34m'
+    NC = '\033[0m'  # No Color
+
+def print_status(color: str, message: str):
+    """Print colored status message"""
+    print(f"{color}{message}{Colors.NC}")
+
+class VibeCheckBatchReviewer:
+    def __init__(self):
+        self.script_dir = Path(__file__).parent
+        self.single_review_script = self.script_dir / "run_single_review.py"
+        self.master_file = Path("vibe-check/reviews/_MASTER.json")
+        self.delay_seconds = 5
+    
+    def check_prerequisites(self) -> bool:
+        """Check if required files exist"""
+        if not self.single_review_script.exists():
+            print_status(Colors.RED, f"Error: {self.single_review_script} not found!")
+            return False
+        
+        if not self.single_review_script.is_file() or not os.access(self.single_review_script, os.X_OK):
+            print_status(Colors.RED, f"Error: {self.single_review_script} is not executable!")
+            return False
+        
+        if not self.master_file.exists():
+            print_status(Colors.RED, f"Error: {self.master_file} not found!")
+            return False
+        
+        # Check authentication
+        if os.environ.get("ANTHROPIC_API_KEY"):
+            print_status(Colors.GREEN, "✓ Using Anthropic API key from environment")
+        else:
+            print_status(Colors.YELLOW, "No ANTHROPIC_API_KEY found - will use Claude subscription")
+            print("Make sure you're signed into Claude CLI")
+        
+        return True
+    
+    def count_remaining_files(self) -> int:
+        """Count how many files are left to review"""
+        try:
+            with open(self.master_file, 'r') as f:
+                data = json.load(f)
+            
+            return sum(1 for info in data['files'].values() 
+                      if info['status'] in ['not_reviewed', 'in_progress'])
+        except Exception:
+            return 0
+    
+    def run_single_review(self) -> bool:
+        """Run a single review and return success status"""
+        try:
+            # Run the single review script
+            result = subprocess.run(
+                [sys.executable, str(self.single_review_script)],
+                capture_output=False,  # Let output go to console
+                text=True
+            )
+            
+            return result.returncode == 0
+        except Exception as e:
+            print_status(Colors.RED, f"Error running review: {e}")
+            return False
+    
+    def run(self):
+        """Main execution flow"""
+        # Check prerequisites
+        if not self.check_prerequisites():
+            return 1
+        
+        print_status(Colors.BLUE, "=== Vibe-Check Batch Review Process ===")
+        print()
+        
+        # Counters
+        total_reviewed = 0
+        failed_reviews = 0
+        
+        # Main review loop
+        while True:
+            # Check remaining files
+            remaining = self.count_remaining_files()
+            
+            if remaining == 0:
+                print_status(Colors.GREEN, "✓ All files have been reviewed!")
+                break
+            
+            print_status(Colors.YELLOW, f"Files remaining: {remaining}")
+            print_status(Colors.BLUE, f"Starting review #{total_reviewed + 1}...")
+            print()
+            
+            # Run single review
+            if self.run_single_review():
+                total_reviewed += 1
+                print_status(Colors.GREEN, f"✓ Review #{total_reviewed} completed successfully")
+            else:
+                failed_reviews += 1
+                print_status(Colors.RED, "✗ Review failed! Stopping batch process.")
+                break
+            
+            # Add delay between reviews to avoid rate limiting
+            if remaining > 1:
+                print_status(Colors.YELLOW, f"Waiting {self.delay_seconds} seconds before next review...")
+                time.sleep(self.delay_seconds)
+            
+            print()
+            print("=" * 40)
+            print()
+        
+        # Final summary
+        print()
+        print_status(Colors.BLUE, "=== Batch Review Summary ===")
+        print_status(Colors.GREEN, f"Total files reviewed: {total_reviewed}")
+        
+        if failed_reviews > 0:
+            print_status(Colors.RED, f"Failed reviews: {failed_reviews}")
+            return 1
+        else:
+            print_status(Colors.GREEN, "All reviews completed successfully!")
+            return 0
+
+def main():
+    """Main entry point"""
+    reviewer = VibeCheckBatchReviewer()
+    sys.exit(reviewer.run())
+
+if __name__ == "__main__":
+    main()
 ```
 
 After creating this file, make it executable:
 ```bash
-chmod +x vibe-check/scripts/review_all.sh
+chmod +x vibe-check/scripts/review_all.py
 ```
 
 ### 3. Verification Checklist
@@ -1055,9 +1163,9 @@ After creating all files, verify:
 - [ ] `vibe-check/reviews/system/HOTSPOTS.md` exists with section headers
 - [ ] `vibe-check/reviews/system/METRICS_SUMMARY.md` exists with metric table
 - [ ] `vibe-check/reviews/modules/README.md` exists with navigation guide
-- [ ] `vibe-check/scripts/populate_master.sh` exists and is executable
-- [ ] `vibe-check/scripts/run_single_review.sh` exists and is executable
-- [ ] `vibe-check/scripts/review_all.sh` exists and is executable
+- [ ] `vibe-check/scripts/populate_master.py` exists and is executable
+- [ ] `vibe-check/scripts/run_single_review.py` exists and is executable
+- [ ] `vibe-check/scripts/review_all.py` exists and is executable
 
 ### 4. Next Steps
 
@@ -1069,13 +1177,13 @@ Once this structure is in place:
    git rev-parse --git-dir > /dev/null 2>&1 && echo "Git repository detected" || echo "Not a Git repository"
    ```
 
-2. Run the populate_master.sh script based on your Git status:
+2. Run the populate_master.py script based on your Git status:
    ```bash
    # If Git repository detected (will respect .gitignore):
-   ./vibe-check/scripts/populate_master.sh
+   ./vibe-check/scripts/populate_master.py
    
    # If NOT a Git repository (will use find command):
-   FORCE_NO_GIT=1 ./vibe-check/scripts/populate_master.sh
+   FORCE_NO_GIT=1 ./vibe-check/scripts/populate_master.py
    ```
    
    The script will automatically detect Git and inform you which mode it's using:
@@ -1088,10 +1196,10 @@ Once this structure is in place:
    ```bash
    # With API key
    export ANTHROPIC_API_KEY="your-api-key"
-   ./vibe-check/scripts/run_single_review.sh
+   ./vibe-check/scripts/run_single_review.py
    
    # Or with Claude subscription (requires claude login)
-   ./vibe-check/scripts/run_single_review.sh
+   ./vibe-check/scripts/run_single_review.py
    ```
 5. The script will:
    - Find the next unreviewed file automatically
@@ -1104,7 +1212,7 @@ Once this structure is in place:
 6. Repeat step 4 to review more files, or use batch processing:
    ```bash
    # Review all remaining files automatically
-   ./vibe-check/scripts/review_all.sh
+   ./vibe-check/scripts/review_all.py
    ```
    The batch script will:
    - Review all unreviewed files one by one
