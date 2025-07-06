@@ -24,7 +24,7 @@ You are the File Reviewer AI. Your task is to analyze EXACTLY ONE source file an
 
 ## Outputs
 
-1. A complete review markdown file at `vibe-check/reviews/modules/.../[filename].md`
+1. A complete review XML file at `vibe-check/reviews/modules/.../[filename].xml`
 
 ## Precise Algorithm to Follow
 
@@ -102,82 +102,68 @@ For each metric:
   - 2 = High severity issues present
   - 1 = Critical flaws, rewrite needed
 
-### Step 4: Create Review Markdown
+### Step 4: Create Review XML
 
 Use this exact template:
 
-```markdown
----
-file: [FILE_PATH]
-language: [DETECTED_LANGUAGE]
-loc: [LINE_COUNT]
-reviewer: AI-[IDENTIFIER]
-date: [YYYY-MM-DD]
-status: complete
-metrics:
-  security:        {score: [1-5], open_issues: [COUNT]}
-  performance:     {score: [1-5], open_issues: [COUNT]}
-  maintainability: {score: [1-5], open_issues: [COUNT]}
-  consistency:     {score: [1-5], open_issues: [COUNT]}
-  best_practices:  {score: [1-5], open_issues: [COUNT]}
-  code_smell:      {score: [1-5], open_issues: [COUNT]}
----
-
-# 1. Summary
-[Brief description of file purpose and overall health assessment]
-
-# 2. Detailed findings
-
-## Security Issues
-### 1. [HIGH/MEDIUM/LOW] - [Issue Title]
-- **Location**: Lines [START]-[END]
-- **Description**: [Detailed description of the security issue]
-- **Recommendation**: [Specific steps to fix the issue]
-
-## Performance Issues
-### 2. [HIGH/MEDIUM/LOW] - [Issue Title]
-- **Location**: Lines [START]-[END]
-- **Description**: [Detailed description of the performance issue]
-- **Recommendation**: [Specific steps to fix the issue]
-
-## Maintainability Issues
-### 3. [HIGH/MEDIUM/LOW] - [Issue Title]
-- **Location**: Lines [START]-[END]
-- **Description**: [Detailed description of the maintainability issue]
-- **Recommendation**: [Specific steps to fix the issue]
-
-## Consistency Issues
-### 4. [HIGH/MEDIUM/LOW] - [Issue Title]
-- **Location**: Lines [START]-[END]
-- **Description**: [Detailed description of the consistency issue]
-- **Recommendation**: [Specific steps to fix the issue]
-
-## Best Practices Issues
-### 5. [HIGH/MEDIUM/LOW] - [Issue Title]
-- **Location**: Lines [START]-[END]
-- **Description**: [Detailed description of the best practices issue]
-- **Recommendation**: [Specific steps to fix the issue]
-
-## Code Smell Issues
-### 6. [HIGH/MEDIUM/LOW] - [Issue Title]
-- **Location**: Lines [START]-[END]
-- **Description**: [Detailed description of the code smell]
-- **Recommendation**: [Specific steps to fix the issue]
-
-# 3. Positive observations
-[List well-implemented aspects, good patterns, strong test coverage, etc.]
-
-# 4. Context & links
-- Related tests: [path/to/test/file]
-- Documentation: [path/to/docs]
-- Configuration: [path/to/config]
-
-# 5. Checklist
-- [ ] Lints clean
-- [ ] Tests present
-- [ ] Documentation updated
-- [ ] Security review complete
-- [ ] Performance acceptable
+```xml
+<review>
+  <metadata>
+    <file>[FILE_PATH]</file>
+    <language>[DETECTED_LANGUAGE]</language>
+    <loc>[LINE_COUNT]</loc>
+    <reviewer>AI-[IDENTIFIER]</reviewer>
+    <date>[YYYY-MM-DD]</date>
+    <status>complete</status>
+  </metadata>
+  
+  <scores>
+    <metric name="security" score="[1-5]" open_issues="[COUNT]"/>
+    <metric name="performance" score="[1-5]" open_issues="[COUNT]"/>
+    <metric name="maintainability" score="[1-5]" open_issues="[COUNT]"/>
+    <metric name="consistency" score="[1-5]" open_issues="[COUNT]"/>
+    <metric name="best_practices" score="[1-5]" open_issues="[COUNT]"/>
+    <metric name="code_smell" score="[1-5]" open_issues="[COUNT]"/>
+  </scores>
+  
+  <issues>
+    <issue category="security" severity="HIGH">
+      <title>Hardcoded JWT Secret</title>
+      <location>Line 39</location>
+      <description>JWT tokens are signed with a hardcoded secret 'supersecret123', making all tokens vulnerable to forgery</description>
+      <recommendation>Use environment variables or secure configuration management for JWT secrets</recommendation>
+    </issue>
+    
+    <issue category="performance" severity="MEDIUM">
+      <title>N+1 Query Problem</title>
+      <location>Lines 46-52</location>
+      <description>getAllUsers method executes one query per user to fetch posts, causing N+1 queries</description>
+      <recommendation>Use JOIN operations or batch queries to fetch all posts in a single query</recommendation>
+    </issue>
+  </issues>
+  
+  <summary>Brief description of file purpose and overall health assessment</summary>
+  
+  <positive_observations>
+    <observation>Uses bcrypt for password hashing with appropriate salt rounds</observation>
+    <observation>Clean class-based architecture with dependency injection</observation>
+    <observation>Consistent naming conventions following camelCase</observation>
+  </positive_observations>
+  
+  <context>
+    <tests>No test files found</tests>
+    <documentation>No documentation found</documentation>
+    <configuration>No configuration files found</configuration>
+  </context>
+  
+  <checklist>
+    <item completed="false">Lints clean</item>
+    <item completed="false">Tests present</item>
+    <item completed="false">Documentation updated</item>
+    <item completed="false">Security review complete</item>
+    <item completed="false">Performance acceptable</item>
+  </checklist>
+</review>
 ```
 
 ### Step 5: Update Global Scratchsheet
@@ -207,7 +193,7 @@ metrics:
 2. Be objective and consistent in scoring
 3. Always provide actionable recommendations
 4. Use exact file paths (no wildcards or patterns)
-5. Maintain the exact format specified
+5. Maintain the exact XML format specified
 6. Complete ALL sections even if empty
 7. Never modify source code files
 8. Keep findings specific with line numbers

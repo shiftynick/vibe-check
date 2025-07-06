@@ -7,6 +7,7 @@ import subprocess
 import sys
 import os
 import time
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional, Any, Tuple
@@ -367,7 +368,7 @@ class VibeCheck:
         
         for file_path in completed_files.keys():
             # Handle nested directory structure
-            review_file = reviews_dir / f"{file_path}.md"
+            review_file = reviews_dir / f"{file_path}.xml"
             
             if review_file.exists():
                 file_issues = self._parse_review_file(review_file, file_path)
@@ -375,80 +376,44 @@ class VibeCheck:
         return issues
     
     def _parse_review_file(self, review_file: Path, file_path: str) -> List[Dict]:
-        """Parse a review markdown file and extract issues"""
+        """Parse an XML review file and extract issues"""
         issues = []
         try:
-            with open(review_file, 'r') as f:
-                content = f.read()
+            tree = ET.parse(review_file)
+            root = tree.getroot()
             
-            # Extract YAML frontmatter for scores
+            # Extract scores efficiently
             scores = {}
-            if content.startswith('---'):
-                yaml_end = content.find('---', 3)
-                if yaml_end > 0:
-                    yaml_content = content[3:yaml_end]
-                    # Parse scores (simplified)
-                    for line in yaml_content.split('\n'):
-                        if 'score:' in line and '{' in line:
-                            # Handle format like "  security:        {score: 1, open_issues: 4}"
-                            if ':' in line:
-                                metric = line.split(':')[0].strip()
-                                score_part = line.split('score:')[1].strip()
-                                if score_part.startswith('{') or score_part[0].isdigit():
-                                    try:
-                                        # Extract just the score number
-                                        score_str = score_part.split(',')[0].replace('{', '').strip()
-                                        score = int(score_str)
-                                        scores[metric] = score
-                                    except (ValueError, IndexError):
-                                        pass
+            scores_elem = root.find('scores')
+            if scores_elem is not None:
+                for metric in scores_elem.findall('metric'):
+                    name = metric.get('name')
+                    score = metric.get('score')
+                    if name and score:
+                        scores[name] = int(score)
             
-            # Extract issues from markdown sections
-            lines = content.split('\n')
-            current_category = None
-            
-            for i, line in enumerate(lines):
-                if line.startswith('## ') and 'Issues' in line:
-                    current_category = line.replace('## ', '').replace(' Issues', '').lower()
-                elif line.startswith('### ') and current_category:
-                    # Found an issue
-                    parts = line[4:].split(' - ', 1)
-                    if len(parts) == 2:
-                        # Extract severity, handling format like "1. HIGH" or "HIGH"
-                        severity_part = parts[0].strip('[]').upper()
-                        # Remove number prefix if present (e.g., "1. HIGH" -> "HIGH")
-                        if '. ' in severity_part:
-                            severity = severity_part.split('. ', 1)[1]
-                        else:
-                            severity = severity_part
-                        title = parts[1]
-                        
-                        # Find location and description
-                        location = description = recommendation = ""
-                        for j in range(i+1, min(i+10, len(lines))):
-                            if lines[j].startswith('- **Location**:'):
-                                location = lines[j].replace('- **Location**:', '').strip()
-                            elif lines[j].startswith('- **Description**:'):
-                                description = lines[j].replace('- **Description**:', '').strip()
-                            elif lines[j].startswith('- **Recommendation**:'):
-                                recommendation = lines[j].replace('- **Recommendation**:', '').strip()
-                            elif lines[j].startswith('##') or lines[j].startswith('###'):
-                                break
-                        
-                        issue = {
-                            'file': file_path,
-                            'category': current_category,
-                            'severity': severity,
-                            'title': title,
-                            'location': location,
-                            'description': description,
-                            'recommendation': recommendation,
-                            'file_scores': scores
-                        }
-                        issues.append(issue)
+            # Extract issues efficiently  
+            issues_elem = root.find('issues')
+            if issues_elem is not None:
+                for issue_elem in issues_elem.findall('issue'):
+                    title_elem = issue_elem.find('title')
+                    location_elem = issue_elem.find('location')
+                    description_elem = issue_elem.find('description')
+                    recommendation_elem = issue_elem.find('recommendation')
+                    
+                    issues.append({
+                        'file': file_path,
+                        'category': issue_elem.get('category', ''),
+                        'severity': issue_elem.get('severity', ''),
+                        'title': title_elem.text if title_elem is not None else '',
+                        'location': location_elem.text if location_elem is not None else '',
+                        'description': description_elem.text if description_elem is not None else '',
+                        'recommendation': recommendation_elem.text if recommendation_elem is not None else '',
+                        'file_scores': scores
+                    })
         
         except Exception as e:
-            print_status(YELLOW, f"Warning: Could not parse {review_file}: {e}")
+            print_status(YELLOW, f"Warning: Could not parse XML review file {review_file}: {e}")
         
         return issues
     
