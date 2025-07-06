@@ -61,7 +61,30 @@ if [[ ! -f "$MASTER_FILE" ]]; then
     exit 1
 fi
 
-# Check if there are any files to review
+# Find and lock the next file to review
+# Priority: 1) in_progress (resume failed), 2) not_reviewed
+FILE_TO_REVIEW=$(python3 -c "
+import json
+with open('$MASTER_FILE', 'r') as f:
+    data = json.load(f)
+    # First check for any in_progress files (failed previous runs)
+    for file_path, info in data['files'].items():
+        if info['status'] == 'in_progress':
+            print(file_path)
+            exit(0)
+    # Then check for not_reviewed files
+    for file_path, info in data['files'].items():
+        if info['status'] == 'not_reviewed':
+            print(file_path)
+            exit(0)
+" || echo "")
+
+if [[ -z "$FILE_TO_REVIEW" ]]; then
+    print_status "$GREEN" "All files have been reviewed! No files left to process."
+    exit 0
+fi
+
+# Count remaining files
 FILES_TO_REVIEW=$(python3 -c "
 import json
 with open('$MASTER_FILE', 'r') as f:
@@ -70,28 +93,48 @@ with open('$MASTER_FILE', 'r') as f:
     print(len(unreviewed))
 ")
 
-if [[ "$FILES_TO_REVIEW" -eq 0 ]]; then
-    print_status "$GREEN" "All files have been reviewed! No files left to process."
-    exit 0
-fi
-
 print_status "$BLUE" "=== Starting Vibe-Check Single Review ==="
+print_status "$YELLOW" "File to review: $FILE_TO_REVIEW"
 print_status "$YELLOW" "Files remaining to review: $FILES_TO_REVIEW"
 print_status "$YELLOW" "Logging to: $LOG_FILE"
 print_status "$YELLOW" "Permission mode: Auto-accepting file edits"
 echo ""
 
+# Check if file is already in_progress or needs to be marked
+FILE_STATUS=$(python3 -c "
+import json
+with open('$MASTER_FILE', 'r') as f:
+    data = json.load(f)
+print(data['files']['$FILE_TO_REVIEW']['status'])
+")
+
+if [[ "$FILE_STATUS" == "in_progress" ]]; then
+    print_status "$YELLOW" "⚠ Resuming previously failed review for $FILE_TO_REVIEW"
+else
+    # Mark file as in_progress
+    python3 -c "
+import json
+with open('$MASTER_FILE', 'r') as f:
+    data = json.load(f)
+data['files']['$FILE_TO_REVIEW']['status'] = 'in_progress'
+with open('$MASTER_FILE', 'w') as f:
+    json.dump(data, f, indent=2)
+"
+    print_status "$GREEN" "✓ Marked $FILE_TO_REVIEW as in_progress"
+fi
+
 # Read the reviewer instructions
 INSTRUCTIONS=$(cat "$REVIEWER_INSTRUCTIONS")
 
-# Create the prompt for Claude
+# Create the prompt for Claude with specific file
 PROMPT="You have access to a vibe-check directory at path 'vibe-check/' containing review artifacts.
+
+You are tasked with reviewing the following file:
+FILE_PATH: $FILE_TO_REVIEW
 
 Please follow these instructions exactly:
 
-$INSTRUCTIONS
-
-Start by reading vibe-check/reviews/_MASTER.json to find the next unreviewed file and begin the review process."
+$INSTRUCTIONS"
 
 # Run Claude with the review instructions
 # Using --print for non-interactive mode
@@ -148,6 +191,17 @@ echo "----------------------------------------"
 if [[ $CLAUDE_EXIT_CODE -eq 0 ]]; then
     print_status "$GREEN" "✓ Review completed successfully!"
     
+    # Mark file as completed
+    python3 -c "
+import json
+with open('$MASTER_FILE', 'r') as f:
+    data = json.load(f)
+data['files']['$FILE_TO_REVIEW']['status'] = 'completed'
+with open('$MASTER_FILE', 'w') as f:
+    json.dump(data, f, indent=2)
+"
+    print_status "$GREEN" "✓ Marked $FILE_TO_REVIEW as completed"
+    
     # Try to extract cost information from the result JSON in log file
     # Look for the last line with type: "result" in the log
     RESULT_JSON=$(grep '"type": *"result"' "$LOG_FILE" 2>/dev/null | tail -1 || echo "")
@@ -196,5 +250,17 @@ with open('$MASTER_FILE', 'r') as f:
 else
     print_status "$RED" "✗ Review failed with exit code: $CLAUDE_EXIT_CODE"
     print_status "$RED" "Check the log file for details: $LOG_FILE"
+    
+    # Mark file back to not_reviewed on failure
+    python3 -c "
+import json
+with open('$MASTER_FILE', 'r') as f:
+    data = json.load(f)
+data['files']['$FILE_TO_REVIEW']['status'] = 'not_reviewed'
+with open('$MASTER_FILE', 'w') as f:
+    json.dump(data, f, indent=2)
+"
+    print_status "$YELLOW" "⚠ Reverted $FILE_TO_REVIEW back to not_reviewed status"
+    
     exit $CLAUDE_EXIT_CODE
 fi
