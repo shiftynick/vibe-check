@@ -183,9 +183,17 @@ class VibeCheck:
         else:
             print_status(YELLOW, f"⚠ Resuming {file_to_review}")
         
-        # Create prompt
+        # Create prompt with scratchsheet
         with open(self.inst_file, 'r') as f: instructions = f.read()
-        prompt = f"You have access to vibe-check/ directory.\n\nReview this file:\nFILE_PATH: {file_to_review}\n\n{instructions}"
+        
+        # Read scratchsheet if it exists
+        scratchsheet_file = self.vibe_dir / "reviews" / "_SCRATCHSHEET.md"
+        scratchsheet_content = ""
+        if scratchsheet_file.exists():
+            with open(scratchsheet_file, 'r') as f:
+                scratchsheet_content = f"\n\n## Global Scratchsheet\nThe following patterns have been discovered across the codebase:\n\n{f.read()}"
+        
+        prompt = f"You have access to vibe-check/ directory.\n\nReview this file:\nFILE_PATH: {file_to_review}{scratchsheet_content}\n\n{instructions}"
         
         # Run Claude
         cmd = ['claude', '--print', prompt, '--output-format', 'stream-json', '--permission-mode', 'acceptEdits', '--verbose']

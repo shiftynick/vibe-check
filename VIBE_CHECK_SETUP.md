@@ -47,22 +47,7 @@ Create this file with the following content:
 }
 ```
 
-#### 2.2 Create `vibe-check/reviews/_DEPENDENCIES.yml`
-
-Create this file with the following content:
-
-```yaml
-# Vibe-Check Dependency Graph
-# This file tracks all file-to-file dependencies in the codebase
-# Format:
-#   file_path:
-#     outbound: [list of files this file depends on]
-#     inbound: [list of files that depend on this file]
-
-# Dependencies will be populated as files are reviewed
-```
-
-#### 2.3 Create `vibe-check/reviews/system/HOTSPOTS.md`
+#### 2.2 Create `vibe-check/reviews/system/HOTSPOTS.md`
 
 Create this file with the following content:
 
@@ -89,7 +74,7 @@ This file tracks issues that span multiple files or represent systemic patterns 
 *Archive of previously identified and resolved cross-cutting issues.*
 ```
 
-#### 2.4 Create `vibe-check/reviews/system/METRICS_SUMMARY.md`
+#### 2.3 Create `vibe-check/reviews/system/METRICS_SUMMARY.md`
 
 Create this file with the following content:
 
@@ -122,7 +107,7 @@ Create this file with the following content:
 Last Updated: [Date will be auto-updated]
 ```
 
-#### 2.5 Create `vibe-check/reviews/modules/README.md`
+#### 2.4 Create `vibe-check/reviews/modules/README.md`
 
 Create this file with the following content:
 
@@ -140,6 +125,38 @@ This directory mirrors the structure of the repository root (excluding the vibe-
 - Review files use the same name as source files but with `.md` extension
 - Use relative paths when referencing other reviews
 - Module READMEs are created after all files in the module are reviewed
+```
+
+#### 2.5 Create `vibe-check/reviews/_SCRATCHSHEET.md`
+
+Create this file with the following content:
+
+```markdown
+---
+last_updated: 2025-07-06T00:00:00Z
+entry_count: 0
+max_entries: 50
+---
+
+# Project Conventions & Patterns
+
+## Naming Conventions
+<!-- Key naming patterns discovered across the codebase -->
+
+## Architecture Patterns
+<!-- Important architectural decisions and patterns -->
+
+## Common Dependencies
+<!-- Frequently used libraries and versions -->
+
+## Security Patterns
+<!-- Project-specific security requirements -->
+
+## Performance Patterns
+<!-- Known optimizations or bottlenecks -->
+
+## Testing Conventions
+<!-- Test framework patterns and requirements -->
 ```
 
 #### 2.6 Create `vibe-check/prompts/REVIEWER_INSTRUCTIONS.md`
@@ -177,6 +194,12 @@ You are the File Reviewer AI. Your task is to analyze EXACTLY ONE source file an
 2. Updated dependencies in `vibe-check/reviews/_DEPENDENCIES.yml`
 
 ## Precise Algorithm to Follow
+
+### Step 0: Read Global Scratchsheet
+- Open and read `vibe-check/reviews/_SCRATCHSHEET.md`
+- Note any project-wide conventions and patterns
+- Use these patterns to inform your consistency assessments
+- Keep the scratchsheet content in mind throughout the review
 
 ### Step 1: Analyze the Source File
 - Read the complete source code from FILE_PATH
@@ -346,7 +369,23 @@ reverse_dependencies: []
   ```
 - Save the file
 
-### Step 7: Complete
+### Step 7: Update Global Scratchsheet
+- Open `vibe-check/reviews/_SCRATCHSHEET.md`
+- Add any newly discovered project-wide patterns that:
+  - Apply to multiple files (3+ occurrences)
+  - Are not language defaults
+  - Would help future reviews
+- Keep entries concise (1-2 lines each)
+- Remove outdated or least useful entries if over 50 total
+- Update the entry_count in frontmatter
+- Update the last_updated timestamp
+- Example additions:
+  - "All API routes use kebab-case, not camelCase"
+  - "Error messages always include context object"
+  - "Test files use 'describe/it' not 'test' blocks"
+  - "All async functions have explicit error handling"
+
+### Step 8: Complete
 - Save all modified files
 - Output only: "Review of [FILE_PATH] complete."
 - Do not provide any additional commentary
@@ -562,9 +601,17 @@ class VibeCheck:
         else:
             print_status(YELLOW, f"⚠ Resuming {file_to_review}")
         
-        # Create prompt
+        # Create prompt with scratchsheet
         with open(self.inst_file, 'r') as f: instructions = f.read()
-        prompt = f"You have access to vibe-check/ directory.\n\nReview this file:\nFILE_PATH: {file_to_review}\n\n{instructions}"
+        
+        # Read scratchsheet if it exists
+        scratchsheet_file = self.vibe_dir / "reviews" / "_SCRATCHSHEET.md"
+        scratchsheet_content = ""
+        if scratchsheet_file.exists():
+            with open(scratchsheet_file, 'r') as f:
+                scratchsheet_content = f"\n\n## Global Scratchsheet\nThe following patterns have been discovered across the codebase:\n\n{f.read()}"
+        
+        prompt = f"You have access to vibe-check/ directory.\n\nReview this file:\nFILE_PATH: {file_to_review}{scratchsheet_content}\n\n{instructions}"
         
         # Run Claude
         cmd = ['claude', '--print', prompt, '--output-format', 'stream-json', '--permission-mode', 'acceptEdits', '--verbose']
@@ -724,6 +771,7 @@ After creating all files, verify:
 - [ ] `vibe-check/prompts/REVIEWER_INSTRUCTIONS.md` exists with complete algorithm
 - [ ] `vibe-check/reviews/_MASTER.json` exists with proper JSON structure
 - [ ] `vibe-check/reviews/_DEPENDENCIES.yml` exists with YAML format
+- [ ] `vibe-check/reviews/_SCRATCHSHEET.md` exists with frontmatter
 - [ ] `vibe-check/reviews/system/HOTSPOTS.md` exists with section headers
 - [ ] `vibe-check/reviews/system/METRICS_SUMMARY.md` exists with metric table
 - [ ] `vibe-check/reviews/modules/README.md` exists with navigation guide
