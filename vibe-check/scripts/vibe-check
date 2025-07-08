@@ -197,6 +197,7 @@ class VibeCheck:
         self.vibe_dir = Path("vibe-check")
         self.master_file = self.vibe_dir / "reviews" / "_MASTER.json"
         self.inst_file = self.vibe_dir / "prompts" / "REVIEWER_INSTRUCTIONS.md"
+        self.synthesis_file = self.vibe_dir / "prompts" / "SYNTHESIS_INSTRUCTIONS.md"
         self.log_dir = self.vibe_dir / "logs"
         self.review_engine = ClaudeReviewEngine()
 
@@ -545,16 +546,25 @@ class VibeCheck:
             f"Synthesizing {len(issues)} issues across {len(set(i['file'] for i in issues))} files...",
         )
 
-        # Create synthesis prompt
+        # Create synthesis prompt from template
         issues_text = ""
         for issue in issues:
             issues_text += f"\\n**{issue['severity']} {issue['category']}**: {issue['title']} ({issue['file']}:{issue['location']})"
             issues_text += f"\\n  Description: {issue['description']}"
             issues_text += f"\\n  Recommendation: {issue['recommendation']}\\n"
 
-        prompt = f"""Analyze these {len(issues)} code review issues and create an actionable synthesis report.
+        # Load synthesis template or use fallback
+        try:
+            with open(self.synthesis_file, "r") as f:
+                template = f.read()
+        except:
+            # Fallback to hardcoded prompt if template file is missing
+            template = """Analyze the {issue_count} code review issues from {file_count} files and create an actionable synthesis report.
 
-ISSUES:
+**Filter Context:**
+- Severity: {severity}
+- Category: {category}
+
 {issues_text}
 
 Create a concise report with:
@@ -565,6 +575,16 @@ Create a concise report with:
 5. Action Plan (prioritized steps)
 
 Focus on business impact and actionability."""
+
+        # Substitute template variables
+        file_count = len(set(i['file'] for i in issues))
+        prompt = template.format(
+            issue_count=len(issues),
+            issues_text=issues_text,
+            severity=severity,
+            category=category,
+            file_count=file_count
+        )
 
         # Run synthesis using the engine
         self.log_dir.mkdir(exist_ok=True)

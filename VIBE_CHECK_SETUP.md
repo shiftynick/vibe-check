@@ -275,9 +275,81 @@ If you encounter any errors:
 - Cannot parse: Score all metrics as 1 with explanation in summary
 - Lock conflict: Wait and retry once, then report conflict
 
-````
+`````
 
-#### 2.4 Create `vibe-check/scripts/vibe-check`
+#### 2.4 Create `vibe-check/prompts/SYNTHESIS_INSTRUCTIONS.md`
+
+Create this file with the following content:
+
+````markdown
+# SYNTHESIS INSTRUCTIONS - Vibe-Check Issue Analysis
+
+## What is Synthesis?
+
+Synthesis is the "reduce" step in the vibe-check map-reduce workflow. After individual files have been reviewed (the "map" step), synthesis analyzes all collected issues to identify patterns, prioritize problems, and create actionable recommendations for the development team.
+
+## Your Task
+
+Analyze the {issue_count} code review issues from {file_count} files and create an actionable synthesis report.
+
+**Filter Context:**
+- Severity: {severity}
+- Category: {category}
+
+## Issues to Analyze
+
+{issues_text}
+
+## Required Output Format
+
+Create a concise report with:
+
+1. **Executive Summary** (2-3 sentences)
+   - Overall code health assessment
+   - Most critical areas requiring attention
+
+2. **Top 5 Priority Issues** (with business impact)
+   - Focus on issues that affect security, performance, or maintainability
+   - Include business rationale for prioritization
+
+3. **Quick Wins** (high-impact, low-effort fixes)
+   - Issues that can be resolved quickly but provide significant value
+   - Suitable for immediate implementation
+
+4. **Root Causes** (systemic issues)
+   - Patterns that indicate deeper architectural or process problems
+   - Issues that suggest training or tooling gaps
+
+5. **Action Plan** (prioritized steps)
+   - Concrete steps for addressing identified issues
+   - Timeline and resource considerations
+
+## Guidelines
+
+- **Focus on business impact and actionability**
+- Prioritize issues by risk and effort required
+- Group similar issues to identify patterns
+- Provide specific, implementable recommendations
+- Consider both technical debt and immediate fixes
+- Balance thoroughness with conciseness
+
+## Output Style
+
+- Use clear, professional language suitable for technical and non-technical stakeholders
+- Include specific file names and line numbers when relevant
+- Quantify impact where possible (performance improvements, security risk levels)
+- Organize recommendations by priority and effort required
+`````
+
+**Template Variables Available:**
+
+- `{issue_count}` - Total number of issues found
+- `{file_count}` - Number of files with issues
+- `{severity}` - Severity filter applied (high/medium/low)
+- `{category}` - Category filter applied or "all"
+- `{issues_text}` - Formatted list of all issues with details
+
+#### 2.5 Create `vibe-check/scripts/vibe-check`
 
 Create this streamlined executable script that handles all vibe-check operations:
 
@@ -291,8 +363,11 @@ import subprocess
 import sys
 import time
 import xml.etree.ElementTree as ET
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 # ANSI colors
 R, G, Y, B, N = "\033[0;31m", "\033[0;32m", "\033[1;33m", "\033[0;34m", "\033[0m"
@@ -300,6 +375,151 @@ R, G, Y, B, N = "\033[0;31m", "\033[0;32m", "\033[1;33m", "\033[0;34m", "\033[0m
 
 def status(color, msg):
     print(f"{color}{msg}{N}")
+
+
+@dataclass
+class ReviewResult:
+    """Standardized result from any review engine"""
+    success: bool
+    output_lines: List[str]
+    input_tokens: int = 0
+    output_tokens: int = 0
+    total_tokens: int = 0
+    cost_usd: float = 0.0
+    duration: float = 0.0
+    error_message: Optional[str] = None
+    raw_data: Optional[Dict[str, Any]] = None
+
+
+class ReviewEngine(ABC):
+    """Abstract base class for all review engines"""
+
+    @abstractmethod
+    def check_availability(self) -> bool:
+        """Check if the review engine is available and configured properly"""
+        pass
+
+    @abstractmethod
+    def run_review(self, prompt: str, log_file: Path) -> ReviewResult:
+        """Execute a review with the given prompt and return standardized results"""
+        pass
+
+    @abstractmethod
+    def run_synthesis(self, prompt: str, log_file: Path) -> ReviewResult:
+        """Execute a synthesis with the given prompt and return standardized results"""
+        pass
+
+
+class ClaudeReviewEngine(ReviewEngine):
+    """Claude CLI implementation of the review engine"""
+
+    def check_availability(self) -> bool:
+        """Check if Claude CLI is available"""
+        try:
+            subprocess.run(["claude", "--version"], capture_output=True, check=True)
+            return True
+        except:
+            return False
+
+    def run_review(self, prompt: str, log_file: Path) -> ReviewResult:
+        """Execute a review using Claude CLI"""
+        return self._run_claude_command(prompt, log_file, is_synthesis=False)
+
+    def run_synthesis(self, prompt: str, log_file: Path) -> ReviewResult:
+        """Execute a synthesis using Claude CLI"""
+        return self._run_claude_command(prompt, log_file, is_synthesis=True)
+
+    def _run_claude_command(self, prompt: str, log_file: Path, is_synthesis: bool = False) -> ReviewResult:
+        """Internal method to run Claude CLI with proper parsing"""
+        cmd = [
+            "claude",
+            "--print",
+            prompt,
+            "--output-format",
+            "stream-json",
+            "--permission-mode",
+            "acceptEdits",
+            "--verbose",
+        ]
+        start_time = time.time()
+
+        tokens_used = input_tokens = output_tokens = 0
+        cost_usd = 0.0
+        output_lines = []
+        error_message = None
+
+        try:
+            with open(log_file, "w") as log:
+                proc = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                )
+                for line in iter(proc.stdout.readline, ""):
+                    log.write(line)
+                    try:
+                        d = json.loads(line.strip())
+                        if d.get("type") == "assistant":
+                            for item in d.get("message", {}).get("content", []):
+                                if item.get("type") == "text" and (
+                                    text := item.get("text", "").strip()
+                                ):
+                                    if is_synthesis:
+                                        output_lines.append(text)
+                                    else:
+                                        print(f"{text}\n---")
+                        elif d.get("type") == "result":
+                            # Final result contains usage and cost information
+                            usage = d.get("usage", {})
+                            if usage:
+                                input_tokens = usage.get("input_tokens", 0) + usage.get(
+                                    "cache_read_input_tokens", 0
+                                )
+                                output_tokens = usage.get("output_tokens", 0)
+                                tokens_used = input_tokens + output_tokens
+                                cost_usd = d.get("total_cost_usd", 0.0)
+                        elif d.get("type") == "assistant" and "usage" in d.get(
+                            "message", {}
+                        ):
+                            # Also check assistant messages for usage data
+                            usage = d["message"]["usage"]
+                            input_tokens = usage.get("input_tokens", 0) + usage.get(
+                                "cache_read_input_tokens", 0
+                            )
+                            output_tokens = usage.get("output_tokens", 0)
+                            tokens_used = input_tokens + output_tokens
+                            # Fallback calculation if no total_cost_usd
+                            if cost_usd == 0.0:
+                                cost_usd = (
+                                    input_tokens * 3.0 + output_tokens * 15.0
+                                ) / 1_000_000
+                    except:
+                        pass
+                proc.wait()
+
+            duration = time.time() - start_time
+            success = proc.returncode == 0
+
+            if not success:
+                error_message = f"Claude CLI failed with return code {proc.returncode}"
+
+        except Exception as e:
+            duration = time.time() - start_time
+            success = False
+            error_message = f"Failed to execute Claude CLI: {str(e)}"
+
+        return ReviewResult(
+            success=success,
+            output_lines=output_lines,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=tokens_used,
+            cost_usd=cost_usd,
+            duration=duration,
+            error_message=error_message,
+        )
 
 
 # Core file extensions
@@ -333,7 +553,9 @@ class VibeCheck:
         self.vibe_dir = Path("vibe-check")
         self.master_file = self.vibe_dir / "reviews" / "_MASTER.json"
         self.inst_file = self.vibe_dir / "prompts" / "REVIEWER_INSTRUCTIONS.md"
+        self.synthesis_file = self.vibe_dir / "prompts" / "SYNTHESIS_INSTRUCTIONS.md"
         self.log_dir = self.vibe_dir / "logs"
+        self.review_engine = ClaudeReviewEngine()
 
     def load_master(self):
         with open(self.master_file, "r") as f:
@@ -505,11 +727,9 @@ class VibeCheck:
             status(R, "Missing files! Run populate first.")
             return 1
 
-        # Check Claude CLI
-        try:
-            subprocess.run(["claude", "--version"], capture_output=True, check=True)
-        except:
-            status(R, "Error: Claude CLI not found!")
+        # Check review engine availability
+        if not self.review_engine.check_availability():
+            status(R, "Error: Review engine not available!")
             return 1
 
         # Find next file
@@ -546,72 +766,10 @@ class VibeCheck:
 
         prompt = f"Review this file:\\nFILE_PATH: {file_to_review}\\nXML_REVIEW_FILE: {xml_file_path}{scratchsheet_content}\\n\\n{instructions}"
 
-        # Run Claude with timing
-        cmd = [
-            "claude",
-            "--print",
-            prompt,
-            "--output-format",
-            "stream-json",
-            "--permission-mode",
-            "acceptEdits",
-            "--verbose",
-        ]
-        start_time = time.time()
+        # Run review using the engine
+        result = self.review_engine.run_review(prompt, log_file)
 
-        tokens_used = input_tokens = output_tokens = 0
-        cost_usd = 0.0
-
-        with open(log_file, "w") as log:
-            proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
-            )
-            for line in iter(proc.stdout.readline, ""):
-                log.write(line)
-                try:
-                    d = json.loads(line.strip())
-                    if d.get("type") == "assistant":
-                        for item in d.get("message", {}).get("content", []):
-                            if item.get("type") == "text" and (
-                                text := item.get("text", "").strip()
-                            ):
-                                print(f"{text}\\n---")
-                    elif d.get("type") == "result":
-                        # Final result contains usage and cost information
-                        usage = d.get("usage", {})
-                        if usage:
-                            input_tokens = usage.get("input_tokens", 0) + usage.get(
-                                "cache_read_input_tokens", 0
-                            )
-                            output_tokens = usage.get("output_tokens", 0)
-                            tokens_used = input_tokens + output_tokens
-                            cost_usd = d.get("total_cost_usd", 0.0)
-                    elif d.get("type") == "assistant" and "usage" in d.get(
-                        "message", {}
-                    ):
-                        # Also check assistant messages for usage data
-                        usage = d["message"]["usage"]
-                        input_tokens = usage.get("input_tokens", 0) + usage.get(
-                            "cache_read_input_tokens", 0
-                        )
-                        output_tokens = usage.get("output_tokens", 0)
-                        tokens_used = input_tokens + output_tokens
-                        # Fallback calculation if no total_cost_usd
-                        if cost_usd == 0.0:
-                            cost_usd = (
-                                input_tokens * 3.0 + output_tokens * 15.0
-                            ) / 1_000_000
-                except:
-                    pass
-            proc.wait()
-
-        duration = time.time() - start_time
-
-        if proc.returncode == 0:
+        if result.success:
             data = self.load_master()
             data["files"][file_to_review]["status"] = "completed"
             self.save_master(data)
@@ -620,12 +778,12 @@ class VibeCheck:
             status(G, "✓ Review completed!")
             print(f"{B}=== Review Summary ==={N}")
             print(f"File: {Y}{file_to_review}{N}")
-            print(f"Duration: {Y}{duration:.1f}s{N}")
-            if tokens_used > 0:
+            print(f"Duration: {Y}{result.duration:.1f}s{N}")
+            if result.total_tokens > 0:
                 print(
-                    f"Tokens: {Y}{input_tokens:,}{N} in + {Y}{output_tokens:,}{N} out = {Y}{tokens_used:,}{N} total"
+                    f"Tokens: {Y}{result.input_tokens:,}{N} in + {Y}{result.output_tokens:,}{N} out = {Y}{result.total_tokens:,}{N} total"
                 )
-                print(f"Cost: {Y}${cost_usd:.4f}{N}")
+                print(f"Cost: {Y}${result.cost_usd:.4f}{N}")
 
             # Calculate running totals
             remaining = sum(
@@ -642,7 +800,8 @@ class VibeCheck:
             print()
             return 0
         else:
-            status(R, f"✗ Review failed! Check: {log_file}")
+            status(R, f"✗ Review failed! {result.error_message or 'Unknown error'}")
+            status(R, f"Check log: {log_file}")
             return 1
 
     def review_all(self, delay=5):
@@ -706,11 +865,9 @@ class VibeCheck:
             status(R, "No reviews found!")
             return 1
 
-        # Check Claude CLI
-        try:
-            subprocess.run(["claude", "--version"], capture_output=True, check=True)
-        except:
-            status(R, "Error: Claude CLI not found!")
+        # Check review engine availability
+        if not self.review_engine.check_availability():
+            status(R, "Error: Review engine not available!")
             return 1
 
         # Create synthesis directory
@@ -745,16 +902,25 @@ class VibeCheck:
             f"Synthesizing {len(issues)} issues across {len(set(i['file'] for i in issues))} files...",
         )
 
-        # Create synthesis prompt
+        # Create synthesis prompt from template
         issues_text = ""
         for issue in issues:
             issues_text += f"\\n**{issue['severity']} {issue['category']}**: {issue['title']} ({issue['file']}:{issue['location']})"
             issues_text += f"\\n  Description: {issue['description']}"
             issues_text += f"\\n  Recommendation: {issue['recommendation']}\\n"
 
-        prompt = f"""Analyze these {len(issues)} code review issues and create an actionable synthesis report.
+        # Load synthesis template or use fallback
+        try:
+            with open(self.synthesis_file, "r") as f:
+                template = f.read()
+        except:
+            # Fallback to hardcoded prompt if template file is missing
+            template = """Analyze the {issue_count} code review issues from {file_count} files and create an actionable synthesis report.
 
-ISSUES:
+**Filter Context:**
+- Severity: {severity}
+- Category: {category}
+
 {issues_text}
 
 Create a concise report with:
@@ -766,44 +932,23 @@ Create a concise report with:
 
 Focus on business impact and actionability."""
 
-        # Run synthesis
+        # Substitute template variables
+        file_count = len(set(i['file'] for i in issues))
+        prompt = template.format(
+            issue_count=len(issues),
+            issues_text=issues_text,
+            severity=severity,
+            category=category,
+            file_count=file_count
+        )
+
+        # Run synthesis using the engine
         self.log_dir.mkdir(exist_ok=True)
         log_file = self.log_dir / f"synthesis_{datetime.now():%Y%m%d_%H%M%S}.log"
-        cmd = [
-            "claude",
-            "--print",
-            prompt,
-            "--output-format",
-            "stream-json",
-            "--permission-mode",
-            "acceptEdits",
-            "--verbose",
-        ]
 
-        output_lines = []
-        with open(log_file, "w") as log:
-            proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
-            )
-            for line in iter(proc.stdout.readline, ""):
-                log.write(line)
-                try:
-                    d = json.loads(line.strip())
-                    if d.get("type") == "assistant":
-                        for item in d.get("message", {}).get("content", []):
-                            if item.get("type") == "text" and (
-                                text := item.get("text", "").strip()
-                            ):
-                                output_lines.append(text)
-                except:
-                    pass
-            proc.wait()
+        result = self.review_engine.run_synthesis(prompt, log_file)
 
-        if proc.returncode == 0:
+        if result.success:
             # Save synthesis result
             synthesis_file = (
                 synthesis_dir
@@ -812,12 +957,12 @@ Focus on business impact and actionability."""
             with open(synthesis_file, "w") as f:
                 f.write(f"# Synthesis Report ({severity.title()} Issues)\\n\\n")
                 f.write(f"Generated: {datetime.now()}\\n\\n")
-                f.write("\\n".join(output_lines))
+                f.write("\\n".join(result.output_lines))
 
             status(G, f"✓ Synthesis complete: {synthesis_file}")
             return 0
         else:
-            status(R, "✗ Synthesis failed")
+            status(R, f"✗ Synthesis failed! {result.error_message or 'Unknown error'}")
             return 1
 
     def _collect_issues(self):
@@ -1123,4 +1268,7 @@ vibe-check/
 This setup creates a complete, streamlined code review system optimized for simplicity and reliability.
 
 When finished with the setup, provide the user with the full list of vibe-check options for running the vibe-check script. Also, inform the user that this edition of vibe-check is custom tailored for running with Claude Code. Warn them that using with an API key can be extremely costly on large projects and that using a Claude Code subscription is preferred to mitigate extreme costs.
-````
+
+```
+
+```

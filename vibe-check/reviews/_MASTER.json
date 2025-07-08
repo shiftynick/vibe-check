@@ -1,40 +1,30 @@
 {
   "metadata": {
     "version": "1.0",
-    "generated": "2025-07-08T13:08:42.572241Z",
-    "total_files": 6,
-    "total_loc": 355
+    "generated": "2025-07-08T13:16:49.426180Z",
+    "total_files": 4,
+    "total_loc": 269
   },
   "files": {
-    "scripts/deploy.sh": {
-      "language": "Sh",
-      "loc": 37,
-      "status": "in_progress"
-    },
     "src/api/user.js": {
       "language": "Js",
       "loc": 56,
-      "status": "not_reviewed"
+      "status": "completed"
     },
     "src/components/Button.tsx": {
       "language": "Tsx",
       "loc": 58,
-      "status": "not_reviewed"
+      "status": "completed"
     },
     "src/utils/database.go": {
       "language": "Go",
       "loc": 91,
-      "status": "not_reviewed"
+      "status": "completed"
     },
     "src/utils/logger.py": {
       "language": "Py",
       "loc": 64,
-      "status": "not_reviewed"
-    },
-    "tests/test_logger.py": {
-      "language": "Py",
-      "loc": 49,
-      "status": "not_reviewed"
+      "status": "completed"
     }
   }
 }
