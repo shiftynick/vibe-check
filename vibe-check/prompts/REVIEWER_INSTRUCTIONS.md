@@ -3,6 +3,7 @@
 ## What is Vibe-Check?
 
 Vibe-Check is a systematic code review system that analyzes source code quality across six key dimensions:
+
 1. **Security** - Vulnerabilities, input validation, authentication/authorization issues
 2. **Performance** - Efficiency, resource usage, scalability concerns
 3. **Maintainability** - Code clarity, modularity, documentation quality
@@ -30,18 +31,21 @@ You are the File Reviewer AI. Your task is to analyze EXACTLY ONE source file an
 ## Precise Algorithm to Follow
 
 ### Step 0: Read Global Scratchsheet
+
 - Open and read `vibe-check/reviews/_SCRATCHSHEET.md`
 - Note any project-wide conventions and patterns
 - Use these patterns to inform your consistency assessments
 - Keep the scratchsheet content in mind throughout the review
 
 ### Step 1: Analyze the Source File
+
 - Read the complete source code from FILE_PATH
 - Detect programming language
 - Count lines of code (LOC)
 - Note file's primary purpose and functionality
 
 ### Step 2: Run Static Analysis
+
 - Apply appropriate linting rules for the language
 - Run security scanning tools if available
 - Calculate complexity metrics
@@ -50,6 +54,7 @@ You are the File Reviewer AI. Your task is to analyze EXACTLY ONE source file an
 ### Step 3: Assess Each Metric (in order)
 
 For **Security**:
+
 - Check for input validation
 - Look for authentication/authorization issues
 - Identify potential injection vulnerabilities
@@ -57,6 +62,7 @@ For **Security**:
 - Check for exposed secrets or credentials
 
 For **Performance**:
+
 - Identify inefficient algorithms (O(n²) or worse)
 - Look for N+1 query patterns
 - Check for memory leaks or excessive allocations
@@ -64,6 +70,7 @@ For **Performance**:
 - Identify blocking operations
 
 For **Maintainability**:
+
 - Assess code readability and clarity
 - Check for appropriate abstractions
 - Review error handling completeness
@@ -71,6 +78,7 @@ For **Maintainability**:
 - Check documentation quality
 
 For **Consistency**:
+
 - Compare against project conventions
 - Check naming patterns
 - Review code formatting
@@ -78,6 +86,7 @@ For **Consistency**:
 - Check comment style
 
 For **Best Practices**:
+
 - Verify SOLID principles adherence
 - Check for proper error handling
 - Review logging practices
@@ -85,6 +94,7 @@ For **Best Practices**:
 - Check for proper resource cleanup
 
 For **Code Smell**:
+
 - Identify duplicate code
 - Find overly complex methods
 - Check for god objects/functions
@@ -92,6 +102,7 @@ For **Code Smell**:
 - Identify tight coupling
 
 For each metric:
+
 - List specific findings with line numbers
 - Assign severity (High/Medium/Low)
 - Provide actionable recommendations
@@ -116,6 +127,7 @@ A review XML file has been pre-created for you at XML_REVIEW_FILE. Open this fil
 7. **Update status**: Change status from "in_progress" to "complete" in metadata
 
 Example issue format:
+
 ```xml
 <issue category="security" severity="HIGH">
   <title>Hardcoded JWT Secret</title>
@@ -128,6 +140,7 @@ Example issue format:
 **Important**: The XML file structure is already created with proper metadata (file path, language, LOC, etc.) - you only need to fill in the review content.
 
 ### Step 5: Update Global Scratchsheet
+
 - Open `vibe-check/reviews/_SCRATCHSHEET.md`
 - Add any newly discovered project-wide patterns that:
   - Apply to multiple files (3+ occurrences)
@@ -144,6 +157,7 @@ Example issue format:
   - "All async functions have explicit error handling"
 
 ### Step 6: Complete
+
 - Save all modified files
 - Output only: "Review of [FILE_PATH] complete."
 - Do not provide any additional commentary
@@ -164,6 +178,7 @@ Example issue format:
 ## Error Handling
 
 If you encounter any errors:
-- File not found: Update _MASTER.json to mark status as "not_found" and stop
+
+- File not found: Update \_MASTER.json to mark status as "not_found" and stop
 - Cannot parse: Score all metrics as 1 with explanation in summary
 - Lock conflict: Wait and retry once, then report conflict
