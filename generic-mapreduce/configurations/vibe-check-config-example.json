@@ -135,7 +135,38 @@
     
     "global_context": {
       "context_file": "reviews/_SCRATCHSHEET.md",
-      "context_update_rules": "Add newly discovered project-wide patterns that apply to 3+ files, are not language defaults, and would help future reviews"
+      "context_update_rules": "Add newly discovered project-wide patterns that apply to 3+ files, are not language defaults, and would help future reviews",
+      "template": "# {project_name} - Project Context & Patterns\n\n## Project Overview\nThis scratchsheet tracks project-wide patterns, conventions, and insights discovered during code review.\n\n## Discovered Patterns\n*Add patterns that apply to 3+ files and are not language defaults*\n\n{sections}\n\n## Review Guidelines\n*Patterns that should inform future reviews*\n\n{sections}\n\n---\n*This scratchsheet is automatically updated during the review process*",
+      "sections": [
+        {
+          "name": "Architecture Patterns",
+          "description": "Common architectural patterns and structures found across the codebase"
+        },
+        {
+          "name": "Code Conventions",
+          "description": "Project-specific coding standards and naming conventions"
+        },
+        {
+          "name": "Common Issues",
+          "description": "Recurring problems and anti-patterns found in multiple files"
+        },
+        {
+          "name": "Dependencies & Libraries",
+          "description": "Key libraries, frameworks, and dependencies used in the project"
+        },
+        {
+          "name": "Security Considerations",
+          "description": "Security patterns and considerations specific to this project"
+        },
+        {
+          "name": "Performance Patterns",
+          "description": "Performance-related patterns and optimizations"
+        },
+        {
+          "name": "Maintainability Standards",
+          "description": "Standards and practices that improve long-term maintainability"
+        }
+      ]
     }
   },
   

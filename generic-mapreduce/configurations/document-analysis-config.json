@@ -122,7 +122,40 @@
     
     "global_context": {
       "context_file": "research_context.md",
-      "context_update_rules": "Add emerging themes, methodological patterns, and research gaps observed across multiple papers"
+      "context_update_rules": "Add emerging themes, methodological patterns, and research gaps observed across multiple papers",
+      "template": "# {project_name} - Research Context & Patterns\n\n## Research Domain Overview\nThis document tracks emerging themes, methodological patterns, and research insights discovered during literature analysis.\n\n## Discovered Patterns\n*Add patterns that appear across 3+ papers and represent significant trends*\n\n{sections}\n\n## Research Guidelines\n*Patterns that should inform future paper analysis*\n\n{sections}\n\n---\n*This research context is automatically updated during the analysis process*",
+      "sections": [
+        {
+          "name": "Emerging Themes",
+          "description": "Common research themes and topics appearing across multiple papers",
+          "placeholder": "No themes identified yet"
+        },
+        {
+          "name": "Methodological Patterns",
+          "description": "Common research methodologies and approaches used in the literature",
+          "placeholder": "No methodological patterns identified yet"
+        },
+        {
+          "name": "Research Gaps",
+          "description": "Areas of research that appear underexplored or missing from the literature",
+          "placeholder": "No research gaps identified yet"
+        },
+        {
+          "name": "Key Findings",
+          "description": "Significant findings and conclusions that appear across multiple studies",
+          "placeholder": "No key findings identified yet"
+        },
+        {
+          "name": "Theoretical Frameworks",
+          "description": "Common theoretical approaches and frameworks used in the research",
+          "placeholder": "No theoretical frameworks identified yet"
+        },
+        {
+          "name": "Future Directions",
+          "description": "Suggested areas for future research mentioned across papers",
+          "placeholder": "No future directions identified yet"
+        }
+      ]
     }
   },
   

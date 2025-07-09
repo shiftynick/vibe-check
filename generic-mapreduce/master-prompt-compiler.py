@@ -25,8 +25,15 @@ class MasterPromptCompiler:
         
         project = self.config['project']
         populate = self.config['populate']
-        map_config = self.config['map']
+        map_config = self.config['map'].copy()  # Make a copy to modify
         reduce_config = self.config['reduce']
+        
+        # Force XML output format for map stage
+        map_config['output_format'] = 'xml'
+        
+        # Update config with forced XML format
+        config_for_output = self.config.copy()
+        config_for_output['map'] = map_config
         
         # Generate the master setup file
         setup_content = f"""# {project['name'].upper().replace('-', '_')}_SETUP.md
@@ -55,7 +62,7 @@ Create the following directory hierarchy within a new `{project['name']}-framewo
 Create this file with the following content:
 
 ```json
-{json.dumps(self.config, indent=2)}
+{json.dumps(config_for_output, indent=2)}
 ```
 
 #### 2.2 Create `{project['name']}-framework/data/master.json`
@@ -296,6 +303,81 @@ class {self._to_class_name(project['name'])}:
         
         return filtered_items
     
+    def _parse_xml_to_dict(self, element):
+        \"\"\"Parse XML element to dictionary structure\"\"\"
+        result = {{}}
+        
+        # Handle element text
+        if element.text and element.text.strip():
+            result['text'] = element.text.strip()
+        
+        # Handle attributes
+        if element.attrib:
+            result['attributes'] = element.attrib
+        
+        # Handle child elements
+        for child in element:
+            child_result = self._parse_xml_to_dict(child)
+            
+            if child.tag in result:
+                # If tag already exists, make it a list
+                if not isinstance(result[child.tag], list):
+                    result[child.tag] = [result[child.tag]]
+                result[child.tag].append(child_result)
+            else:
+                result[child.tag] = child_result
+        
+        return result
+    
+    def _load_global_context(self):
+        \"\"\"Load global context for processing\"\"\"
+        global_context_config = self.config['map'].get('global_context', {{}})
+        context_file = global_context_config.get('context_file')
+        
+        if context_file:
+            context_path = self.framework_dir / context_file
+            # Create the context file and its directory if they don't exist
+            context_path.parent.mkdir(parents=True, exist_ok=True)
+            if not context_path.exists():
+                self._initialize_scratchsheet(context_path)
+            
+            with open(context_path, 'r') as f:
+                return f.read()
+        
+        return "No global context available."
+    
+    def _initialize_scratchsheet(self, context_path):
+        \"\"\"Initialize the scratchsheet with configurable structure\"\"\"
+        project_name = self.config['project']['name']
+        global_context_config = self.config['map'].get('global_context', {{}})
+        
+        # Use configurable template or fallback to basic template
+        template = global_context_config.get('template', 
+            "# {{project_name}} - Project Context & Patterns\\n\\n## Project Overview\\nThis scratchsheet tracks project-wide patterns, conventions, and insights discovered during code review.\\n\\n{{sections}}\\n\\n---\\n*This scratchsheet is automatically updated during the review process*")
+        
+        # Build sections from configuration
+        sections_config = global_context_config.get('sections', [])
+        sections_content = ""
+        
+        for section in sections_config:
+            section_name = section['name']
+            section_description = section.get('description', '')
+            placeholder = section.get('placeholder', 'TBD')
+            
+            sections_content += f"### {{section_name}}\\n"
+            if section_description:
+                sections_content += f"*{{section_description}}*\\n\\n"
+            sections_content += f"- {{placeholder}}\\n\\n"
+        
+        # Replace template variables
+        initial_content = template.format(
+            project_name=project_name.title(),
+            sections=sections_content.strip()
+        )
+        
+        with open(context_path, 'w') as f:
+            f.write(initial_content)
+    
     def process(self):
         \"\"\"Stage 2: Process single item\"\"\"
         with open(self.master_file, 'r') as f:
@@ -309,26 +391,79 @@ class {self._to_class_name(project['name'])}:
         status(G, "All items processed!")
         return 0
     
+    def process_all(self):
+        \"\"\"Stage 2: Process all items\"\"\"
+        processed = 0
+        while True:
+            with open(self.master_file, 'r') as f:
+                master_data = json.load(f)
+            
+            # Find items to process
+            remaining = [path for path, item in master_data['items'].items() if item['status'] == 'not_analyzed']
+            
+            if not remaining:
+                break
+            
+            status(Y, f"Remaining: {{len(remaining)}}, Processing #{{processed + 1}}")
+            
+            if self.process() == 0:
+                processed += 1
+                # Small delay between items
+                time.sleep(2)
+            else:
+                status(R, "Processing failed! Stopping.")
+                return 1
+        
+        status(G, f"✓ Processed {{processed}} items total")
+        return 0
+    
     def _process_item(self, item_path, item):
         \"\"\"Process a single item\"\"\"
         status(B, f"Processing: {{item_path}}")
         
-        # Create output file
-        output_file = self.framework_dir / "results" / f"{{Path(item_path).stem}}.json"
+        # Create output file that mirrors source structure
+        output_format = 'xml'  # Always use XML for map stage output
+        item_path_obj = Path(item_path)
+        
+        # Mirror the source directory structure
+        output_file = self.framework_dir / "results" / item_path_obj.parent / f"{{item_path_obj.stem}}.{{output_format}}"
         output_file.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Load global context (scratchsheet)
+        global_context = self._load_global_context()
         
         # Create processing prompt
         with open(self.framework_dir / "prompts" / "PROCESSING_INSTRUCTIONS.md", 'r') as f:
             instructions = f.read()
         
-        prompt = f"Process this item:\\nITEM_PATH: {{item_path}}\\nOUTPUT_FILE: {{output_file}}\\n\\n{{instructions}}"
+        prompt = f"Process this item:\\nITEM_PATH: {{item_path}}\\nOUTPUT_FILE: {{output_file}}\\nGLOBAL_CONTEXT: {{global_context}}\\n\\n{{instructions}}"
         
-        # Run Claude CLI
-        result = subprocess.run([
-            "claude", "--print", prompt,
+        # Run Claude CLI - pass prompt via stdin to avoid command line length limits
+        proc = subprocess.Popen([
+            "claude", "--print", "-",
             "--output-format", "stream-json",
-            "--permission-mode", "acceptEdits"
-        ], capture_output=True, text=True)
+            "--permission-mode", "acceptEdits",
+            "--verbose"
+        ], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        
+        # Send prompt and get streaming output
+        stdout, stderr = proc.communicate(input=prompt)
+        
+        # Display live output (parse stream-json to show assistant messages)
+        import json
+        for line in stdout.strip().split('\\n'):
+            if line.strip():
+                try:
+                    data = json.loads(line)
+                    if data.get('type') == 'assistant':
+                        for content in data.get('message', {{}}).get('content', []):
+                            if content.get('type') == 'text':
+                                print(content.get('text', ''))
+                                print("---")
+                except json.JSONDecodeError:
+                    pass
+        
+        result = type('Result', (), {{'returncode': proc.returncode, 'stdout': stdout, 'stderr': stderr}})()
         
         if result.returncode == 0:
             # Mark as completed
@@ -352,9 +487,24 @@ class {self._to_class_name(project['name'])}:
         results = []
         results_dir = self.framework_dir / "results"
         
-        for result_file in results_dir.rglob("*.json"):
+        output_format = 'xml'  # Always use XML for map stage output
+        
+        for result_file in results_dir.rglob("*.xml"):
             with open(result_file, 'r') as f:
-                results.append(json.load(f))
+                # Parse XML and convert to dict-like structure
+                import xml.etree.ElementTree as ET
+                try:
+                    tree = ET.parse(f)
+                    root = tree.getroot()
+                    result = self._parse_xml_to_dict(root)
+                    results.append(result)
+                except ET.ParseError as e:
+                    # Handle malformed XML by reading as text and extracting basic info
+                    f.seek(0)
+                    content = f.read()
+                    # Try to extract basic metadata and skip for now
+                    result = {{'content': content, 'metadata': {{'item_path': str(result_file)}}}}
+                    results.append(result)
         
         if not results:
             status(Y, "No results found to synthesize")
@@ -366,24 +516,93 @@ class {self._to_class_name(project['name'])}:
         
         # Format results data
         issues_data = ""
+        total_issues = 0
+        
         for result in results:
-            for finding in result.get('findings', []):
-                issues_data += f"\\n**{{finding.get('severity', 'unknown').upper()}}**: {{finding.get('description', '')}}\\n"
+            # Get item path from metadata
+            item_path = result.get('metadata', {{}}).get('item_path', 'unknown')
+            if isinstance(item_path, dict) and 'text' in item_path:
+                item_path = item_path['text']
+            
+            # Handle findings structure (could be dict or XML-parsed structure)
+            findings = result.get('findings', {{}})
+            if not findings:
+                continue
+                
+            # Process each category
+            for category, category_data in findings.items():
+                if not category_data:
+                    continue
+                    
+                # Handle both list and dict formats
+                finding_list = category_data
+                if isinstance(category_data, dict):
+                    finding_list = category_data.get('finding', [])
+                    if not isinstance(finding_list, list):
+                        finding_list = [finding_list]
+                
+                for finding in finding_list:
+                    if not finding:
+                        continue
+                        
+                    # Extract finding details (handle both dict and XML structure)
+                    finding_type = finding.get('type', {{}})
+                    if isinstance(finding_type, dict):
+                        finding_type = finding_type.get('text', 'unknown')
+                    
+                    description = finding.get('description', {{}})
+                    if isinstance(description, dict):
+                        description = description.get('text', '')
+                    
+                    impact = finding.get('impact', {{}})
+                    if isinstance(impact, dict):
+                        impact = impact.get('text', 'No impact specified')
+                    
+                    location = finding.get('location', {{}})
+                    if isinstance(location, dict):
+                        location = location.get('text', '')
+                    
+                    issues_data += f"\\n**{{finding_type.upper()}} {{category.upper()}}**: {{description}}\\n"
+                    issues_data += f"  File: {{item_path}}"
+                    if location:
+                        issues_data += f" ({{location}})"
+                    issues_data += f"\\n  Impact: {{impact}}\\n"
+                    total_issues += 1
         
         prompt = template.format(
-            issue_count=sum(len(r.get('findings', [])) for r in results),
+            issue_count=total_issues,
             file_count=len(results),
             severity='medium',
             category='all',
             issues_data=issues_data
         )
         
-        # Run synthesis
-        result = subprocess.run([
-            "claude", "--print", prompt,
+        # Run synthesis - pass prompt via stdin to avoid command line length limits
+        proc = subprocess.Popen([
+            "claude", "--print", "-",
             "--output-format", "stream-json",
-            "--permission-mode", "acceptEdits"
-        ], capture_output=True, text=True)
+            "--permission-mode", "acceptEdits",
+            "--verbose"
+        ], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        
+        # Send prompt and get streaming output
+        stdout, stderr = proc.communicate(input=prompt)
+        
+        # Parse stream to extract content
+        content_lines = []
+        for line in stdout.strip().split('\\n'):
+            if line.strip():
+                try:
+                    data = json.loads(line)
+                    if data.get('type') == 'assistant':
+                        for content in data.get('message', {{}}).get('content', []):
+                            if content.get('type') == 'text':
+                                content_lines.append(content.get('text', ''))
+                except json.JSONDecodeError:
+                    pass
+        
+        synthesis_content = '\\n'.join(content_lines)
+        result = type('Result', (), {{'returncode': proc.returncode, 'stdout': synthesis_content, 'stderr': stderr}})()
         
         if result.returncode == 0:
             # Save synthesis result
@@ -403,7 +622,7 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(description="{project['description']}")
-    parser.add_argument("command", choices=["populate", "process", "synthesize"])
+    parser.add_argument("command", choices=["populate", "process", "process-all", "synthesize"])
     parser.add_argument("directories", nargs="*", help="Target directories (optional)")
     
     args = parser.parse_args()
@@ -414,6 +633,8 @@ def main():
         return processor.populate(args.directories)
     elif args.command == "process":
         return processor.process()
+    elif args.command == "process-all":
+        return processor.process_all()
     elif args.command == "synthesize":
         return processor.synthesize()
 
@@ -435,8 +656,9 @@ chmod +x {project['name']}-framework/process.py
 # 1. Populate items
 python3 {project['name']}-framework/process.py populate
 
-# 2. Process items
-python3 {project['name']}-framework/process.py process
+# 2. Process items (choose one)
+python3 {project['name']}-framework/process.py process      # Process single item
+python3 {project['name']}-framework/process.py process-all  # Process all items
 
 # 3. Synthesize results
 python3 {project['name']}-framework/process.py synthesize

@@ -164,6 +164,23 @@
             "context_update_rules": {
               "type": "string",
               "description": "How to update global context based on findings"
+            },
+            "template": {
+              "type": "string",
+              "description": "Template for initializing the global context file"
+            },
+            "sections": {
+              "type": "array",
+              "description": "Configurable sections for the global context file",
+              "items": {
+                "type": "object",
+                "required": ["name", "description"],
+                "properties": {
+                  "name": {"type": "string"},
+                  "description": {"type": "string"},
+                  "placeholder": {"type": "string", "default": "TBD"}
+                }
+              }
             }
           }
         }

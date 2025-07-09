@@ -551,7 +551,7 @@ class GenericMapReduce:
             self._save_master_data(master_data)
             
             # Update global context
-            self._update_global_context(result.output_data)
+            self._update_global_context(result.output_data, item_to_process['path'])
             
             # Display summary
             status(G, "✓ Processing completed!")
@@ -603,7 +603,7 @@ class GenericMapReduce:
     
     def _create_output_file(self, item: Dict[str, Any]) -> Path:
         """Create output file for processed item"""
-        output_format = self.config['map'].get('output_format', 'json')
+        output_format = 'xml'  # Always use XML for map stage output
         
         # Create output directory structure that mirrors the source
         item_path = Path(item['path'])
@@ -613,26 +613,8 @@ class GenericMapReduce:
         # Create output file
         output_file = output_dir / f"{item_path.stem}.{output_format}"
         
-        # Initialize output file with basic structure
-        if output_format == 'json':
-            initial_data = {
-                'metadata': {
-                    'source_file': item['path'],
-                    'language': item.get('language', 'Unknown'),
-                    'loc': item.get('loc', 0),
-                    'processed_at': datetime.utcnow().isoformat() + 'Z',
-                    'processor': 'AI-Assistant',
-                    'status': 'in_progress'
-                },
-                'scores': {},
-                'findings': [],
-                'summary': '',
-                'recommendations': []
-            }
-            with open(output_file, 'w') as f:
-                json.dump(initial_data, f, indent=2)
-        elif output_format == 'xml':
-            initial_content = f"""<?xml version="1.0" encoding="UTF-8"?>
+        # Initialize output file with XML structure (always use XML for map stage)
+        initial_content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <analysis>
   <metadata>
     <source_file>{item['path']}</source_file>
@@ -653,8 +635,8 @@ class GenericMapReduce:
     <!-- Recommendations will be added here -->
   </recommendations>
 </analysis>"""
-            with open(output_file, 'w') as f:
-                f.write(initial_content)
+        with open(output_file, 'w') as f:
+            f.write(initial_content)
         
         return output_file
     
@@ -666,18 +648,102 @@ class GenericMapReduce:
         
         if context_file:
             context_path = self.framework_dir / context_file
-            if context_path.exists():
-                with open(context_path, 'r') as f:
-                    return f.read()
+            # Create the context file and its directory if they don't exist
+            context_path.parent.mkdir(parents=True, exist_ok=True)
+            if not context_path.exists():
+                self._initialize_scratchsheet(context_path)
+            
+            with open(context_path, 'r') as f:
+                return f.read()
         
         return "No global context available."
     
-    def _update_global_context(self, processing_result: str):
+    def _initialize_scratchsheet(self, context_path: Path):
+        """Initialize the scratchsheet with configurable structure"""
+        project_name = self.config['project']['name']
+        global_context_config = self.config['map'].get('global_context', {})
+        
+        # Use configurable template or fallback to basic template
+        template = global_context_config.get('template', 
+            "# {project_name} - Project Context & Patterns\n\n## Project Overview\nThis scratchsheet tracks project-wide patterns, conventions, and insights discovered during code review.\n\n{sections}\n\n---\n*This scratchsheet is automatically updated during the review process*")
+        
+        # Build sections from configuration
+        sections_config = global_context_config.get('sections', [])
+        sections_content = ""
+        
+        for section in sections_config:
+            section_name = section['name']
+            section_description = section.get('description', '')
+            placeholder = section.get('placeholder', 'TBD')
+            
+            sections_content += f"### {section_name}\n"
+            if section_description:
+                sections_content += f"*{section_description}*\n\n"
+            sections_content += f"- {placeholder}\n\n"
+        
+        # Replace template variables
+        initial_content = template.format(
+            project_name=project_name.title(),
+            sections=sections_content.strip()
+        )
+        
+        with open(context_path, 'w') as f:
+            f.write(initial_content)
+    
+    def _update_global_context(self, processing_result: str, item_path: str):
         """Update global context based on processing results"""
-        # This is a placeholder - in a real implementation, this would
-        # analyze the processing result and update the global context file
-        # according to the rules in the configuration
-        pass
+        map_config = self.config['map']
+        global_context_config = map_config.get('global_context', {})
+        context_file = global_context_config.get('context_file')
+        update_rules = global_context_config.get('context_update_rules', '')
+        
+        if not context_file:
+            return
+            
+        context_path = self.framework_dir / context_file
+        if not context_path.exists():
+            return
+            
+        # Create a prompt to analyze the processing result and extract patterns
+        analysis_prompt = f"""Analyze this code review result and extract any project-wide patterns that should be added to the global context.
+
+**Update Rules**: {update_rules}
+
+**File Reviewed**: {item_path}
+
+**Review Result**: 
+{processing_result}
+
+**Current Global Context**:
+{self._load_global_context()}
+
+**Task**: If this review reveals any new project-wide patterns that:
+1. Apply to 3 or more files
+2. Are not language defaults  
+3. Would help future reviews
+
+Then suggest ONLY the specific additions to add to the scratchsheet. If no new patterns are found, respond with "No updates needed."
+
+Focus on:
+- Architecture patterns
+- Code conventions
+- Common issues
+- Security considerations
+- Performance patterns
+- Maintainability standards
+
+Format your response as specific bullet points to add under the appropriate sections."""
+
+        # Run the analysis (this would use the processing engine)
+        log_file = self.logs_dir / f"context_update_{datetime.now():%Y%m%d_%H%M%S}.log"
+        result = self.processing_engine.process_item(analysis_prompt, log_file)
+        
+        if result.success and result.output_data and "No updates needed" not in result.output_data:
+            # Append the discovered patterns to the scratchsheet
+            with open(context_path, 'a') as f:
+                f.write(f"\n\n## Update from {item_path} review ({datetime.now():%Y-%m-%d %H:%M})\n")
+                f.write(result.output_data)
+                f.write("\n")
     
     def _build_assessment_instructions(self) -> str:
         """Build assessment instructions from configuration"""
@@ -705,7 +771,7 @@ Scoring rubric:
     def _build_output_requirements(self) -> str:
         """Build output requirements from configuration"""
         map_config = self.config['map']
-        output_format = map_config.get('output_format', 'json')
+        output_format = 'xml'  # Always use XML for map stage output
         output_schema = map_config.get('output_schema', {})
         
         requirements = f"""
@@ -846,12 +912,8 @@ Please ensure your output follows this structure exactly.
         for result_file in self.results_dir.rglob('*'):
             if result_file.is_file():
                 try:
-                    if result_file.suffix == '.json':
-                        with open(result_file, 'r') as f:
-                            data = json.load(f)
-                            results.append(data)
-                    elif result_file.suffix == '.xml':
-                        # Parse XML results
+                    if result_file.suffix == '.xml':
+                        # Parse XML results (only XML files supported)
                         import xml.etree.ElementTree as ET
                         tree = ET.parse(result_file)
                         root = tree.getroot()
@@ -988,9 +1050,21 @@ def main():
     # Map command
     sub.add_parser("map", help="Process single item")
     
+    # Process command (alias for map)
+    sub.add_parser("process", help="Process single item")
+    
     # Map-all command
     map_all_parser = sub.add_parser("map-all", help="Process all items")
     map_all_parser.add_argument(
+        "--delay",
+        type=int,
+        default=5,
+        help="Delay between items (seconds)"
+    )
+    
+    # Process-all command (alias for map-all)
+    process_all_parser = sub.add_parser("process-all", help="Process all items")
+    process_all_parser.add_argument(
         "--delay",
         type=int,
         default=5,
@@ -1024,9 +1098,9 @@ def main():
             return framework.populate(args.directories)
         elif args.command == "status":
             return framework.status()
-        elif args.command == "map":
+        elif args.command == "map" or args.command == "process":
             return framework.map_process()
-        elif args.command == "map-all":
+        elif args.command == "map-all" or args.command == "process-all":
             return framework.map_process_all(args.delay)
         elif args.command == "reduce":
             return framework.reduce_synthesize(args.severity, args.category)

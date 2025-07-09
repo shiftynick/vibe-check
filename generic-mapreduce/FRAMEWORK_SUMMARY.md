@@ -44,14 +44,15 @@ Successfully created a **generic map-reduce meta-prompt framework** that abstrac
 ### Code Review (Original Vibe-Check)
 ```bash
 python3 generic-mapreduce.py vibe-check-config-example.json populate
-python3 generic-mapreduce.py vibe-check-config-example.json map
+python3 generic-mapreduce.py vibe-check-config-example.json process      # Single item
+python3 generic-mapreduce.py vibe-check-config-example.json process-all  # All items
 python3 generic-mapreduce.py vibe-check-config-example.json reduce
 ```
 
 ### Document Analysis (Research Papers)
 ```bash
 python3 generic-mapreduce.py document-analysis-config.json populate sample-documents
-python3 generic-mapreduce.py document-analysis-config.json map
+python3 generic-mapreduce.py document-analysis-config.json process-all
 python3 generic-mapreduce.py document-analysis-config.json reduce
 ```
 
@@ -110,7 +111,7 @@ vibe-check-dev/
 # 1. Create configuration for your domain
 # 2. Run framework components
 python3 generic-mapreduce.py config.json populate
-python3 generic-mapreduce.py config.json map
+python3 generic-mapreduce.py config.json process-all
 python3 generic-mapreduce.py config.json reduce
 
 # 3. Generate master prompt
