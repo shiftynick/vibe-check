@@ -1,0 +1,193 @@
+{
+  "project": {
+    "name": "research-paper-analysis",
+    "version": "1.0",
+    "description": "Academic research paper analysis system for systematic literature review"
+  },
+  
+  "populate": {
+    "collection_strategy": "filesystem",
+    "item_filters": {
+      "include_patterns": ["*.pdf", "*.docx", "*.txt", "*.md"],
+      "exclude_patterns": ["*template*", "*draft*"],
+      "exclude_directories": ["temp", "backup", "archive"],
+      "max_size_bytes": 10485760
+    },
+    "metadata_extraction": {
+      "required_fields": ["path", "document_type", "word_count", "status"],
+      "optional_fields": ["author", "publication_date", "journal"],
+      "extraction_rules": {
+        "document_type": "file_extension.title()",
+        "word_count": "0",
+        "status": "'not_analyzed'"
+      }
+    },
+    "output_format": "json"
+  },
+  
+  "map": {
+    "processing_template": "You are a Research Paper Analyst. Analyze the document at {item_path} and provide a comprehensive academic analysis.\n\n## Document Information\n{item_data}\n\n## Analysis Dimensions\n{assessment_instructions}\n\n## Output Requirements\n{output_requirements}\n\nFocus on academic rigor, methodology, and contribution to the field.",
+    
+    "assessment_dimensions": [
+      {
+        "name": "methodology",
+        "description": "Research methodology quality and appropriateness",
+        "scoring_rubric": {
+          "scale": {"min": 1, "max": 5, "type": "integer"},
+          "criteria": {
+            "5": "Excellent methodology, rigorous and well-justified",
+            "4": "Good methodology with minor limitations",
+            "3": "Adequate methodology with some concerns",
+            "2": "Poor methodology with significant flaws",
+            "1": "Severely flawed or inappropriate methodology"
+          }
+        },
+        "specific_instructions": "Evaluate research design, data collection methods, sample size, controls, and statistical analysis approaches"
+      },
+      {
+        "name": "contribution",
+        "description": "Novelty and significance of contribution to the field",
+        "scoring_rubric": {
+          "scale": {"min": 1, "max": 5, "type": "integer"},
+          "criteria": {
+            "5": "Groundbreaking contribution with major implications",
+            "4": "Significant contribution advancing the field",
+            "3": "Moderate contribution with some value",
+            "2": "Minor contribution with limited impact",
+            "1": "No clear contribution or replicates existing work"
+          }
+        },
+        "specific_instructions": "Assess originality, theoretical advancement, practical applications, and potential impact on future research"
+      },
+      {
+        "name": "literature_review",
+        "description": "Quality and comprehensiveness of literature review",
+        "scoring_rubric": {
+          "scale": {"min": 1, "max": 5, "type": "integer"},
+          "criteria": {
+            "5": "Comprehensive, critical, and well-integrated review",
+            "4": "Good review with minor gaps",
+            "3": "Adequate review covering main areas",
+            "2": "Limited review missing key references",
+            "1": "Poor or superficial literature review"
+          }
+        },
+        "specific_instructions": "Evaluate coverage of relevant literature, critical analysis, identification of gaps, and theoretical framework"
+      },
+      {
+        "name": "clarity",
+        "description": "Writing quality, structure, and presentation",
+        "scoring_rubric": {
+          "scale": {"min": 1, "max": 5, "type": "integer"},
+          "criteria": {
+            "5": "Exceptionally clear, well-structured, and engaging",
+            "4": "Clear and well-organized with minor issues",
+            "3": "Generally clear with some organizational problems",
+            "2": "Unclear in places with structural issues",
+            "1": "Poor writing quality hindering comprehension"
+          }
+        },
+        "specific_instructions": "Assess logical flow, argument structure, use of evidence, and overall readability"
+      },
+      {
+        "name": "reproducibility",
+        "description": "Reproducibility and transparency of methods",
+        "scoring_rubric": {
+          "scale": {"min": 1, "max": 5, "type": "integer"},
+          "criteria": {
+            "5": "Fully reproducible with detailed protocols",
+            "4": "Mostly reproducible with minor gaps",
+            "3": "Partially reproducible with some details missing",
+            "2": "Difficult to reproduce due to missing information",
+            "1": "Not reproducible or lacks essential details"
+          }
+        },
+        "specific_instructions": "Evaluate availability of data, code, detailed protocols, and sufficient methodological detail"
+      }
+    ],
+    
+    "output_format": "json",
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "metadata": {"type": "object"},
+        "scores": {"type": "object"},
+        "findings": {"type": "array"},
+        "abstract_summary": {"type": "string"},
+        "key_contributions": {"type": "array"},
+        "limitations": {"type": "array"},
+        "future_work": {"type": "array"}
+      }
+    },
+    
+    "global_context": {
+      "context_file": "research_context.md",
+      "context_update_rules": "Add emerging themes, methodological patterns, and research gaps observed across multiple papers"
+    }
+  },
+  
+  "reduce": {
+    "synthesis_template": "Analyze the {issue_count} research findings from {file_count} papers and create a comprehensive literature review synthesis.\n\n**Analysis Context:**\n- Focus Area: {category}\n- Quality Threshold: {severity}\n\n## Research Findings\n{issues_data}\n\n## Synthesis Requirements\n{output_sections}",
+    
+    "aggregation_rules": {
+      "grouping_criteria": ["research_area", "methodology_type", "publication_year"],
+      "filtering_options": {
+        "severity_levels": ["high", "medium", "low"],
+        "categories": ["methodology", "contribution", "literature_review", "clarity", "reproducibility"],
+        "score_thresholds": {
+          "excellent": 4,
+          "good": 3,
+          "needs_improvement": 2
+        }
+      },
+      "pattern_detection": {
+        "similarity_threshold": 0.7,
+        "minimum_occurrences": 2,
+        "pattern_types": ["methodological_trends", "theoretical_frameworks", "research_gaps"]
+      }
+    },
+    
+    "output_sections": [
+      {
+        "name": "literature_overview",
+        "description": "Comprehensive overview of analyzed literature",
+        "template": "## Literature Overview\n\nProvide a comprehensive overview of the {file_count} papers analyzed, including key themes, methodological approaches, and research contexts.",
+        "required": true
+      },
+      {
+        "name": "methodological_trends",
+        "description": "Analysis of methodological patterns and trends",
+        "template": "## Methodological Trends\n\nIdentify and analyze methodological patterns, innovative approaches, and common limitations across the reviewed papers.",
+        "required": true
+      },
+      {
+        "name": "theoretical_contributions",
+        "description": "Key theoretical contributions and frameworks",
+        "template": "## Theoretical Contributions\n\nSummarize major theoretical advances, frameworks, and conceptual contributions from the analyzed papers.",
+        "required": true
+      },
+      {
+        "name": "research_gaps",
+        "description": "Identified research gaps and future directions",
+        "template": "## Research Gaps and Future Directions\n\nIdentify systematic gaps in the literature and suggest promising directions for future research.",
+        "required": true
+      },
+      {
+        "name": "quality_assessment",
+        "description": "Overall quality assessment and recommendations",
+        "template": "## Quality Assessment\n\nProvide an overall assessment of the literature quality and recommendations for researchers in this field.",
+        "required": true
+      }
+    ],
+    
+    "output_format": "markdown"
+  },
+  
+  "execution": {
+    "engine": "claude",
+    "batch_size": 1,
+    "delay_between_batches": 3,
+    "resume_on_failure": true,
+    "max_retries": 2
+  }
+}

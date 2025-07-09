@@ -1,0 +1,275 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Generic Map-Reduce Framework Configuration",
+  "type": "object",
+  "required": ["project", "populate", "map", "reduce"],
+  "properties": {
+    "project": {
+      "type": "object",
+      "required": ["name", "version", "description"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Project name for this map-reduce configuration"
+        },
+        "version": {
+          "type": "string",
+          "description": "Configuration version"
+        },
+        "description": {
+          "type": "string",
+          "description": "Brief description of what this configuration does"
+        }
+      }
+    },
+    
+    "populate": {
+      "type": "object",
+      "required": ["collection_strategy", "item_filters", "metadata_extraction"],
+      "properties": {
+        "collection_strategy": {
+          "type": "string",
+          "enum": ["filesystem", "git", "api", "database", "manual"],
+          "description": "How to collect items for processing"
+        },
+        "item_filters": {
+          "type": "object",
+          "properties": {
+            "include_patterns": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "Glob patterns or extensions to include"
+            },
+            "exclude_patterns": {
+              "type": "array", 
+              "items": {"type": "string"},
+              "description": "Patterns to exclude from collection"
+            },
+            "exclude_directories": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "Directory names to skip"
+            },
+            "max_size_bytes": {
+              "type": "integer",
+              "description": "Maximum file size to process"
+            },
+            "custom_filter": {
+              "type": "string",
+              "description": "Custom filter logic as code template"
+            }
+          }
+        },
+        "metadata_extraction": {
+          "type": "object",
+          "properties": {
+            "required_fields": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "Fields that must be extracted from each item"
+            },
+            "optional_fields": {
+              "type": "array", 
+              "items": {"type": "string"},
+              "description": "Additional fields to extract if available"
+            },
+            "extraction_rules": {
+              "type": "object",
+              "patternProperties": {
+                ".*": {
+                  "type": "string",
+                  "description": "Field extraction rule as template"
+                }
+              }
+            }
+          }
+        },
+        "output_format": {
+          "type": "string",
+          "enum": ["json", "xml", "csv", "yaml"],
+          "default": "json",
+          "description": "Format for the master tracking file"
+        }
+      }
+    },
+    
+    "map": {
+      "type": "object",
+      "required": ["processing_template", "assessment_dimensions", "output_format"],
+      "properties": {
+        "processing_template": {
+          "type": "string",
+          "description": "Main prompt template for processing each item"
+        },
+        "assessment_dimensions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "description", "scoring_rubric"],
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Dimension name (e.g., 'security', 'quality')"
+              },
+              "description": {
+                "type": "string", 
+                "description": "What this dimension measures"
+              },
+              "scoring_rubric": {
+                "type": "object",
+                "properties": {
+                  "scale": {
+                    "type": "object",
+                    "properties": {
+                      "min": {"type": "number"},
+                      "max": {"type": "number"},
+                      "type": {"type": "string", "enum": ["integer", "float"]}
+                    }
+                  },
+                  "criteria": {
+                    "type": "object",
+                    "patternProperties": {
+                      ".*": {
+                        "type": "string",
+                        "description": "Criteria for each score level"
+                      }
+                    }
+                  }
+                }
+              },
+              "specific_instructions": {
+                "type": "string",
+                "description": "Additional instructions for this dimension"
+              }
+            }
+          }
+        },
+        "output_format": {
+          "type": "string",
+          "enum": ["json", "xml", "yaml", "markdown"],
+          "default": "json",
+          "description": "Format for individual processing results"
+        },
+        "output_schema": {
+          "type": "object",
+          "description": "Schema defining the structure of map outputs"
+        },
+        "global_context": {
+          "type": "object",
+          "properties": {
+            "context_file": {
+              "type": "string",
+              "description": "Path to file containing global context/patterns"
+            },
+            "context_update_rules": {
+              "type": "string",
+              "description": "How to update global context based on findings"
+            }
+          }
+        }
+      }
+    },
+    
+    "reduce": {
+      "type": "object", 
+      "required": ["synthesis_template", "aggregation_rules"],
+      "properties": {
+        "synthesis_template": {
+          "type": "string",
+          "description": "Main prompt template for synthesis/reduction"
+        },
+        "aggregation_rules": {
+          "type": "object",
+          "properties": {
+            "grouping_criteria": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "How to group items for analysis"
+            },
+            "filtering_options": {
+              "type": "object",
+              "properties": {
+                "severity_levels": {
+                  "type": "array",
+                  "items": {"type": "string"}
+                },
+                "categories": {
+                  "type": "array", 
+                  "items": {"type": "string"}
+                },
+                "score_thresholds": {
+                  "type": "object",
+                  "patternProperties": {
+                    ".*": {"type": "number"}
+                  }
+                }
+              }
+            },
+            "pattern_detection": {
+              "type": "object",
+              "properties": {
+                "similarity_threshold": {"type": "number"},
+                "minimum_occurrences": {"type": "integer"},
+                "pattern_types": {
+                  "type": "array",
+                  "items": {"type": "string"}
+                }
+              }
+            }
+          }
+        },
+        "output_sections": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "description", "template"],
+            "properties": {
+              "name": {"type": "string"},
+              "description": {"type": "string"},
+              "template": {"type": "string"},
+              "required": {"type": "boolean", "default": true}
+            }
+          }
+        },
+        "output_format": {
+          "type": "string", 
+          "enum": ["markdown", "json", "html", "pdf"],
+          "default": "markdown",
+          "description": "Format for synthesis report"
+        }
+      }
+    },
+    
+    "execution": {
+      "type": "object",
+      "properties": {
+        "engine": {
+          "type": "string",
+          "enum": ["claude", "openai", "custom"],
+          "default": "claude",
+          "description": "AI engine to use for processing"
+        },
+        "batch_size": {
+          "type": "integer",
+          "default": 1,
+          "description": "Number of items to process in parallel"
+        },
+        "delay_between_batches": {
+          "type": "number",
+          "default": 0,
+          "description": "Seconds to wait between batches"
+        },
+        "resume_on_failure": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether to resume processing after failures"
+        },
+        "max_retries": {
+          "type": "integer",
+          "default": 3,
+          "description": "Maximum retries for failed items"
+        }
+      }
+    }
+  }
+}

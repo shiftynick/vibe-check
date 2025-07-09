@@ -1,0 +1,206 @@
+{
+  "project": {
+    "name": "vibe-check-code-review",
+    "version": "1.0",
+    "description": "Code review system analyzing source code quality across six key dimensions"
+  },
+  
+  "populate": {
+    "collection_strategy": "git",
+    "item_filters": {
+      "include_patterns": ["*.js", "*.jsx", "*.ts", "*.tsx", "*.vue", "*.svelte", "*.py", "*.java", "*.go", "*.rs", "*.rb", "*.php", "*.c", "*.cpp", "*.h", "*.hpp", "*.cs", "*.swift", "*.kt", "*.sh", "*.sql"],
+      "exclude_patterns": ["*.min.js", "*.bundle.js", "*.test.js", "*.spec.js"],
+      "exclude_directories": [".git", "node_modules", "venv", "__pycache__", "build", "dist", "coverage"],
+      "max_size_bytes": 1048576
+    },
+    "metadata_extraction": {
+      "required_fields": ["path", "language", "loc", "status"],
+      "optional_fields": ["last_modified", "author", "complexity"],
+      "extraction_rules": {
+        "language": "file_extension.title()",
+        "loc": "count_lines(file_content)",
+        "status": "'not_reviewed'"
+      }
+    },
+    "output_format": "json"
+  },
+  
+  "map": {
+    "processing_template": "You are the File Reviewer AI. Your task is to analyze EXACTLY ONE source file and produce a comprehensive review following a deterministic algorithm.\n\n## Inputs\n- FILE_PATH: {item_path}\n- REVIEW_OUTPUT_FILE: {output_file}\n- Global context from scratchsheet: {global_context}\n\n## Assessment Process\n{assessment_instructions}\n\n## Output Requirements\n{output_requirements}",
+    
+    "assessment_dimensions": [
+      {
+        "name": "security",
+        "description": "Vulnerabilities, input validation, authentication/authorization issues",
+        "scoring_rubric": {
+          "scale": {"min": 1, "max": 5, "type": "integer"},
+          "criteria": {
+            "5": "Exemplary security practices, no vulnerabilities found",
+            "4": "Minor security concerns that don't pose immediate risk",
+            "3": "At least one medium severity security issue present",
+            "2": "High severity security vulnerabilities present",
+            "1": "Critical security flaws requiring immediate attention"
+          }
+        },
+        "specific_instructions": "Check for input validation, authentication/authorization issues, potential injection vulnerabilities, cryptographic usage, and exposed secrets"
+      },
+      {
+        "name": "performance", 
+        "description": "Efficiency, resource usage, scalability concerns",
+        "scoring_rubric": {
+          "scale": {"min": 1, "max": 5, "type": "integer"},
+          "criteria": {
+            "5": "Excellent performance characteristics",
+            "4": "Minor performance improvements possible",
+            "3": "Noticeable performance issues present",
+            "2": "Significant performance problems",
+            "1": "Critical performance issues affecting usability"
+          }
+        },
+        "specific_instructions": "Identify inefficient algorithms, N+1 query patterns, memory leaks, caching opportunities, and blocking operations"
+      },
+      {
+        "name": "maintainability",
+        "description": "Code clarity, modularity, documentation quality", 
+        "scoring_rubric": {
+          "scale": {"min": 1, "max": 5, "type": "integer"},
+          "criteria": {
+            "5": "Highly maintainable with excellent documentation",
+            "4": "Good maintainability with minor documentation gaps",
+            "3": "Adequate maintainability with some clarity issues",
+            "2": "Poor maintainability, difficult to understand",
+            "1": "Unmaintainable code requiring significant refactoring"
+          }
+        },
+        "specific_instructions": "Assess code readability, abstractions, error handling, test coverage needs, and documentation quality"
+      },
+      {
+        "name": "consistency",
+        "description": "Adherence to project conventions and patterns",
+        "scoring_rubric": {
+          "scale": {"min": 1, "max": 5, "type": "integer"},
+          "criteria": {
+            "5": "Perfect consistency with project standards",
+            "4": "Minor consistency deviations",
+            "3": "Some inconsistencies with project patterns",
+            "2": "Multiple consistency issues",
+            "1": "Completely inconsistent with project standards"
+          }
+        },
+        "specific_instructions": "Compare against project conventions, check naming patterns, code formatting, import organization, and comment style"
+      },
+      {
+        "name": "best_practices",
+        "description": "Industry standards, design patterns, idiomatic code",
+        "scoring_rubric": {
+          "scale": {"min": 1, "max": 5, "type": "integer"},
+          "criteria": {
+            "5": "Exemplary use of best practices",
+            "4": "Good adherence to best practices",
+            "3": "Some best practice violations",
+            "2": "Multiple best practice issues",
+            "1": "Poor adherence to industry standards"
+          }
+        },
+        "specific_instructions": "Verify SOLID principles, error handling, logging practices, API design, and resource cleanup"
+      },
+      {
+        "name": "code_smell",
+        "description": "Anti-patterns, technical debt, refactoring opportunities",
+        "scoring_rubric": {
+          "scale": {"min": 1, "max": 5, "type": "integer"},
+          "criteria": {
+            "5": "No code smells detected",
+            "4": "Minor code smells present",
+            "3": "Some code smells requiring attention",
+            "2": "Multiple code smells present",
+            "1": "Significant code smells requiring refactoring"
+          }
+        },
+        "specific_instructions": "Identify duplicate code, overly complex methods, god objects/functions, magic numbers, and tight coupling"
+      }
+    ],
+    
+    "output_format": "xml",
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "metadata": {"type": "object"},
+        "scores": {"type": "object"},
+        "issues": {"type": "array"},
+        "summary": {"type": "string"},
+        "positive_observations": {"type": "array"}
+      }
+    },
+    
+    "global_context": {
+      "context_file": "reviews/_SCRATCHSHEET.md",
+      "context_update_rules": "Add newly discovered project-wide patterns that apply to 3+ files, are not language defaults, and would help future reviews"
+    }
+  },
+  
+  "reduce": {
+    "synthesis_template": "Analyze the {issue_count} code review issues from {file_count} files and create an actionable synthesis report.\n\n**Filter Context:**\n- Severity: {severity}\n- Category: {category}\n\n## Issues to Analyze\n{issues_data}\n\n## Required Output\n{output_sections}",
+    
+    "aggregation_rules": {
+      "grouping_criteria": ["severity", "category", "file_type"],
+      "filtering_options": {
+        "severity_levels": ["HIGH", "MEDIUM", "LOW"],
+        "categories": ["security", "performance", "maintainability", "consistency", "best_practices", "code_smell"],
+        "score_thresholds": {
+          "critical": 2,
+          "needs_attention": 3,
+          "acceptable": 4
+        }
+      },
+      "pattern_detection": {
+        "similarity_threshold": 0.8,
+        "minimum_occurrences": 3,
+        "pattern_types": ["common_issues", "architectural_problems", "style_violations"]
+      }
+    },
+    
+    "output_sections": [
+      {
+        "name": "executive_summary",
+        "description": "Overall code health assessment and most critical areas",
+        "template": "## Executive Summary\n\nProvide 2-3 sentences covering overall code health and most critical areas requiring attention.",
+        "required": true
+      },
+      {
+        "name": "priority_issues",
+        "description": "Top 5 issues with business impact",
+        "template": "## Top 5 Priority Issues\n\nFocus on issues affecting security, performance, or maintainability with business rationale for prioritization.",
+        "required": true
+      },
+      {
+        "name": "quick_wins",
+        "description": "High-impact, low-effort fixes",
+        "template": "## Quick Wins\n\nIssues that can be resolved quickly but provide significant value, suitable for immediate implementation.",
+        "required": true
+      },
+      {
+        "name": "root_causes",
+        "description": "Systemic issues and patterns",
+        "template": "## Root Causes\n\nPatterns indicating deeper architectural or process problems, training or tooling gaps.",
+        "required": true
+      },
+      {
+        "name": "action_plan",
+        "description": "Prioritized implementation steps",
+        "template": "## Action Plan\n\nConcrete steps for addressing identified issues with timeline and resource considerations.",
+        "required": true
+      }
+    ],
+    
+    "output_format": "markdown"
+  },
+  
+  "execution": {
+    "engine": "claude",
+    "batch_size": 1,
+    "delay_between_batches": 5,
+    "resume_on_failure": true,
+    "max_retries": 3
+  }
+}
