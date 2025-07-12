@@ -227,23 +227,27 @@ class TemplateEngine:
         return re.findall(r'\{([^}]+)\}', template)
 
 
-class GenericMapReduce:
+class CodeUsageAnalysis:
     """Main framework class for generic map-reduce processing"""
 
-    def __init__(self, config_path: Path):
-        self.config_path = config_path
-        self.config = ConfigLoader.load_config(config_path)
-        ConfigLoader.validate_config(self.config)
+    def __init__(self):
+        # Load configuration from file system
+        self.framework_dir = Path("code-usage-analysis-framework")
+        config_path = self.framework_dir / "config.json"
 
-        self.framework_dir = Path(f"{self.config['project']['name']}-framework")
+        if not config_path.exists():
+            raise FileNotFoundError(f"Configuration file not found: {config_path}")
+
+        with open(config_path, 'r') as f:
+            self.config = json.load(f)
+
         self.data_dir = self.framework_dir / "data"
         self.results_dir = self.framework_dir / "results"
+        self.synthesis_dir = self.framework_dir / "synthesis"
         self.logs_dir = self.framework_dir / "logs"
-        engine_type = self.config.get('execution', {}).get('engine', 'claude')
-        if engine_type == 'claude':
-            self.processing_engine = ClaudeProcessingEngine()
-        else:
-            raise ValueError(f"Unsupported processing engine: {engine_type}")
+
+        # Initialize processing engine
+        self.processing_engine = ClaudeProcessingEngine()
 
     def _load_master_data(self) -> Dict[str, Any]:
         """Load master data"""
@@ -882,12 +886,9 @@ Please ensure your output follows this structure exactly.
 def main():
     """Main entry point"""
     parser = argparse.ArgumentParser(
-        description="Generic Map-Reduce Framework for AI-Powered Analysis"
+        description="Code usage analysis system identifying file purposes and their usage patterns across the codebase"
     )
-    parser.add_argument(
-        "config",
-        help="Path to configuration file"
-    )
+    
 
     sub = parser.add_subparsers(dest="command", help="Commands")
 
@@ -915,7 +916,7 @@ def main():
         return 1
 
     try:
-        framework = GenericMapReduce(Path(args.config))
+        framework = CodeUsageAnalysis()
 
         if args.command == "populate":
             return framework.populate(args.directories)

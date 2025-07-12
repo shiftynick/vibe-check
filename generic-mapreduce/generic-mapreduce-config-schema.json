@@ -22,7 +22,7 @@
         }
       }
     },
-    
+
     "populate": {
       "type": "object",
       "required": ["collection_strategy", "item_filters", "metadata_extraction"],
@@ -41,7 +41,7 @@
               "description": "Glob patterns or extensions to include"
             },
             "exclude_patterns": {
-              "type": "array", 
+              "type": "array",
               "items": {"type": "string"},
               "description": "Patterns to exclude from collection"
             },
@@ -69,7 +69,7 @@
               "description": "Fields that must be extracted from each item"
             },
             "optional_fields": {
-              "type": "array", 
+              "type": "array",
               "items": {"type": "string"},
               "description": "Additional fields to extract if available"
             },
@@ -83,19 +83,13 @@
               }
             }
           }
-        },
-        "output_format": {
-          "type": "string",
-          "enum": ["json", "xml", "csv", "yaml"],
-          "default": "json",
-          "description": "Format for the master tracking file"
         }
       }
     },
-    
+
     "map": {
       "type": "object",
-      "required": ["processing_template", "assessment_dimensions", "output_format"],
+      "required": ["processing_template", "assessment_dimensions"],
       "properties": {
         "processing_template": {
           "type": "string",
@@ -112,7 +106,7 @@
                 "description": "Dimension name (e.g., 'security', 'quality')"
               },
               "description": {
-                "type": "string", 
+                "type": "string",
                 "description": "What this dimension measures"
               },
               "scoring_rubric": {
@@ -143,12 +137,6 @@
               }
             }
           }
-        },
-        "output_format": {
-          "type": "string",
-          "enum": ["json", "xml", "yaml", "markdown"],
-          "default": "json",
-          "description": "Format for individual processing results"
         },
         "output_schema": {
           "type": "object",
@@ -186,9 +174,9 @@
         }
       }
     },
-    
+
     "reduce": {
-      "type": "object", 
+      "type": "object",
       "required": ["synthesis_template", "aggregation_rules"],
       "properties": {
         "synthesis_template": {
@@ -211,7 +199,7 @@
                   "items": {"type": "string"}
                 },
                 "categories": {
-                  "type": "array", 
+                  "type": "array",
                   "items": {"type": "string"}
                 },
                 "score_thresholds": {
@@ -247,16 +235,10 @@
               "required": {"type": "boolean", "default": true}
             }
           }
-        },
-        "output_format": {
-          "type": "string", 
-          "enum": ["markdown", "json", "html", "pdf"],
-          "default": "markdown",
-          "description": "Format for synthesis report"
         }
       }
     },
-    
+
     "execution": {
       "type": "object",
       "properties": {

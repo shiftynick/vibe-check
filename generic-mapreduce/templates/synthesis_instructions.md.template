@@ -1,0 +1,36 @@
+# SYNTHESIS INSTRUCTIONS - {project_name}
+
+## What is Synthesis?
+
+Synthesis is the "reduce" step in the {project_name} workflow. After individual items have been processed (the "map" step), synthesis analyzes all collected results to identify patterns, prioritize findings, and create actionable recommendations.
+
+## Your Task
+
+Analyze the {{issue_count}} findings from {{file_count}} items and create a comprehensive synthesis report.
+
+**Filter Context:**
+- Severity: {{severity}}
+- Category: {{category}}
+
+## Findings to Analyze
+
+{{issues_data}}
+
+## Required Output Format
+
+{synthesis_sections}
+
+## Guidelines
+
+- Focus on actionable insights and patterns
+- Prioritize findings by impact and effort required
+- Group similar findings to identify trends
+- Provide specific, implementable recommendations
+- Balance thoroughness with conciseness
+
+## Output Style
+
+- Use clear, professional language
+- Include specific item references when relevant
+- Quantify impact where possible
+- Organize recommendations by priority and effort required

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<analysis>
+  <metadata>
+    <source_file>scripts/deploy.sh</source_file>
+    <language>Sh</language>
+    <loc>37</loc>
+    <processed_at>2025-07-12T16:33:13.080173Z</processed_at>
+    <processor>AI-Assistant</processor>
+    <status>in_progress</status>
+  </metadata>
+  <scores>
+    <!-- Scores will be added here -->
+  </scores>
+  <findings>
+    <!-- Findings will be added here -->
+  </findings>
+  <summary></summary>
+  <recommendations>
+    <!-- Recommendations will be added here -->
+  </recommendations>
+</analysis>

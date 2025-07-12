@@ -4,7 +4,7 @@
     "version": "1.0",
     "description": "Academic research paper analysis system for systematic literature review"
   },
-  
+
   "populate": {
     "collection_strategy": "filesystem",
     "item_filters": {
@@ -19,15 +19,14 @@
       "extraction_rules": {
         "document_type": "file_extension.title()",
         "word_count": "0",
-        "status": "'not_analyzed'"
+        "status": "'not_reviewed'"
       }
-    },
-    "output_format": "json"
+    }
   },
-  
+
   "map": {
     "processing_template": "You are a Research Paper Analyst. Analyze the document at {item_path} and provide a comprehensive academic analysis.\n\n## Document Information\n{item_data}\n\n## Analysis Dimensions\n{assessment_instructions}\n\n## Output Requirements\n{output_requirements}\n\nFocus on academic rigor, methodology, and contribution to the field.",
-    
+
     "assessment_dimensions": [
       {
         "name": "methodology",
@@ -105,8 +104,7 @@
         "specific_instructions": "Evaluate availability of data, code, detailed protocols, and sufficient methodological detail"
       }
     ],
-    
-    "output_format": "json",
+
     "output_schema": {
       "type": "object",
       "properties": {
@@ -119,7 +117,7 @@
         "future_work": {"type": "array"}
       }
     },
-    
+
     "global_context": {
       "context_file": "research_context.md",
       "context_update_rules": "Add emerging themes, methodological patterns, and research gaps observed across multiple papers",
@@ -158,10 +156,10 @@
       ]
     }
   },
-  
+
   "reduce": {
     "synthesis_template": "Analyze the {issue_count} research findings from {file_count} papers and create a comprehensive literature review synthesis.\n\n**Analysis Context:**\n- Focus Area: {category}\n- Quality Threshold: {severity}\n\n## Research Findings\n{issues_data}\n\n## Synthesis Requirements\n{output_sections}",
-    
+
     "aggregation_rules": {
       "grouping_criteria": ["research_area", "methodology_type", "publication_year"],
       "filtering_options": {
@@ -179,7 +177,7 @@
         "pattern_types": ["methodological_trends", "theoretical_frameworks", "research_gaps"]
       }
     },
-    
+
     "output_sections": [
       {
         "name": "literature_overview",
@@ -211,11 +209,9 @@
         "template": "## Quality Assessment\n\nProvide an overall assessment of the literature quality and recommendations for researchers in this field.",
         "required": true
       }
-    ],
-    
-    "output_format": "markdown"
+    ]
   },
-  
+
   "execution": {
     "engine": "claude",
     "batch_size": 1,

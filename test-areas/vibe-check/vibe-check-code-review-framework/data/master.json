@@ -1,0 +1,13 @@
+{
+  "metadata": {
+    "project": {
+      "name": "vibe-check-code-review",
+      "version": "1.0",
+      "description": "Code review system analyzing source code quality across six key dimensions"
+    },
+    "generated": "2025-07-12T12:32:48.233191",
+    "total_items": 0,
+    "collection_strategy": "git"
+  },
+  "items": {}
+}

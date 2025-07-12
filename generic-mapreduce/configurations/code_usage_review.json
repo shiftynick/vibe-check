@@ -1,0 +1,232 @@
+{
+  "project": {
+    "name": "code-usage-analysis",
+    "version": "1.0",
+    "description": "Code usage analysis system identifying file purposes and their usage patterns across the codebase"
+  },
+
+  "populate": {
+    "collection_strategy": "git",
+    "item_filters": {
+      "include_patterns": ["*.js", "*.jsx", "*.ts", "*.tsx", "*.vue", "*.svelte", "*.py", "*.java", "*.go", "*.rs", "*.rb", "*.php", "*.c", "*.cpp", "*.h", "*.hpp", "*.cs", "*.swift", "*.kt", "*.sh", "*.sql", "*.json", "*.yaml", "*.yml"],
+      "exclude_patterns": ["*.min.js", "*.bundle.js", "package-lock.json", "yarn.lock"],
+      "exclude_directories": [".git", "node_modules", "venv", "__pycache__", "build", "dist", "coverage", ".idea", ".vscode"],
+      "max_size_bytes": 1048576
+    },
+    "metadata_extraction": {
+      "required_fields": ["path", "language", "loc", "status"],
+      "optional_fields": ["last_modified", "author", "complexity", "file_type"],
+      "extraction_rules": {
+        "language": "file_extension.title()",
+        "loc": "count_lines(file_content)",
+        "status": "'not_reviewed'",
+        "file_type": "categorize_file_type(path)"
+      }
+    }
+  },
+
+  "map": {
+    "processing_template": "You are the Code Usage Analyzer AI. Your task is to analyze EXACTLY ONE source file and produce a comprehensive usage analysis following a deterministic algorithm.\n\n## Inputs\n- FILE_PATH: {item_path}\n- ANALYSIS_OUTPUT_FILE: {output_file}\n- Global context from scratchsheet: {global_context}\n\n## Assessment Process\n{assessment_instructions}\n\n## Output Requirements\n{output_requirements}",
+
+    "assessment_dimensions": [
+      {
+        "name": "file_purpose",
+        "description": "Primary purpose and responsibility of the file",
+        "scoring_rubric": {
+          "scale": {"min": 1, "max": 5, "type": "integer"},
+          "criteria": {
+            "5": "Core business logic or critical infrastructure",
+            "4": "Important supporting functionality",
+            "3": "Standard utility or helper functionality",
+            "2": "Secondary or auxiliary functionality",
+            "1": "Minimal functionality or configuration"
+          }
+        },
+        "specific_instructions": "Identify the main purpose of the file, its role in the system architecture, whether it's a utility, service, component, model, controller, or other architectural element"
+      },
+      {
+        "name": "usage_patterns",
+        "description": "How and where this file is used throughout the codebase",
+        "scoring_rubric": {
+          "scale": {"min": 1, "max": 5, "type": "integer"},
+          "criteria": {
+            "5": "Widely used across many modules (10+ references)",
+            "4": "Used by several modules (5-9 references)",
+            "3": "Used by a few modules (2-4 references)",
+            "2": "Used by one other module",
+            "1": "Not used by any other modules (orphaned or entry point)"
+          }
+        },
+        "specific_instructions": "Identify potential callers based on exported functions/classes, note if it's an entry point, library, or internal module"
+      },
+      {
+        "name": "api_surface",
+        "description": "What functionality this file exposes to other parts of the system",
+        "scoring_rubric": {
+          "scale": {"min": 1, "max": 5, "type": "integer"},
+          "criteria": {
+            "5": "Large, well-documented public API (10+ exports)",
+            "4": "Moderate public API (5-9 exports)",
+            "3": "Small public API (2-4 exports)",
+            "2": "Minimal public API (1 export)",
+            "1": "No public API (internal only or script)"
+          }
+        },
+        "specific_instructions": "List all exported functions, classes, constants, types/interfaces, note their visibility and intended usage"
+      },
+      {
+        "name": "coupling_level",
+        "description": "How tightly coupled this file is to other parts of the system",
+        "scoring_rubric": {
+          "scale": {"min": 1, "max": 5, "type": "integer"},
+          "criteria": {
+            "5": "Completely decoupled, could be extracted as standalone",
+            "4": "Loosely coupled, minimal interdependencies",
+            "3": "Moderately coupled, some interdependencies",
+            "2": "Tightly coupled to specific modules",
+            "1": "Highly coupled, deeply integrated with system"
+          }
+        },
+        "specific_instructions": "Assess how easily this file could be moved, replaced, or tested in isolation"
+      },
+      {
+        "name": "change_impact",
+        "description": "The potential impact of changes to this file",
+        "scoring_rubric": {
+          "scale": {"min": 1, "max": 5, "type": "integer"},
+          "criteria": {
+            "5": "Changes would affect entire system",
+            "4": "Changes would affect multiple subsystems",
+            "3": "Changes would affect related modules",
+            "2": "Changes would have limited impact",
+            "1": "Changes would have minimal or no impact"
+          }
+        },
+        "specific_instructions": "Consider the ripple effect of modifications, breaking changes potential, and downstream dependencies"
+      }
+    ],
+
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "metadata": {"type": "object"},
+        "scores": {"type": "object"},
+        "purpose": {"type": "string"},
+        "imports": {"type": "array"},
+        "exports": {"type": "array"},
+        "potential_callers": {"type": "array"},
+        "usage_summary": {"type": "string"},
+        "architectural_role": {"type": "string"}
+      }
+    },
+
+    "global_context": {
+      "context_file": "data/global_context.md",
+      "context_update_rules": "Add newly discovered architectural patterns, common usage patterns, dependency graphs that span multiple files, and system-wide integration points",
+      "template": "# {project_name} - Code Usage Patterns & Architecture\n\n## Project Overview\nThis scratchsheet tracks system-wide usage patterns, architectural relationships, and dependency graphs discovered during code analysis.\n\n## Discovered Patterns\n*Add patterns that reveal how components interact across the system*\n\n{sections}\n\n## Analysis Guidelines\n*Patterns that should inform future usage analysis*\n\n---\n*This scratchsheet is automatically updated during the analysis process*",
+      "sections": [
+        {
+          "name": "System Architecture",
+          "description": "High-level architectural patterns and component relationships"
+        },
+        {
+          "name": "Core Components",
+          "description": "Central files and modules that many others depend on"
+        },
+        {
+          "name": "Integration Points",
+          "description": "Key interfaces and boundaries between subsystems"
+        },
+        {
+          "name": "Dependency Patterns",
+          "description": "Common dependency structures and import patterns"
+        },
+        {
+          "name": "Entry Points",
+          "description": "Main entry points and initialization sequences"
+        },
+        {
+          "name": "Utility Libraries",
+          "description": "Commonly used helper functions and utilities"
+        },
+        {
+          "name": "Orphaned Code",
+          "description": "Files that appear to be unused or disconnected"
+        },
+        {
+          "name": "Circular Dependencies",
+          "description": "Detected circular dependency patterns"
+        }
+      ]
+    }
+  },
+
+  "reduce": {
+    "synthesis_template": "Analyze the {file_count} code usage analyses to create a comprehensive dependency and usage map of the codebase.\n\n**Analysis Context:**\n- Total files analyzed: {file_count}\n- Languages: {languages}\n- Filter: {filter_type}\n\n## Usage Data\n{usage_data}\n\n## Required Output\n{output_sections}",
+
+    "aggregation_rules": {
+      "grouping_criteria": ["architectural_role", "coupling_level", "file_type", "language"],
+      "filtering_options": {
+        "importance_levels": ["CRITICAL", "HIGH", "MEDIUM", "LOW"],
+        "usage_frequency": ["HEAVILY_USED", "MODERATELY_USED", "RARELY_USED", "UNUSED"],
+        "coupling_thresholds": {
+          "highly_coupled": 2,
+          "moderately_coupled": 3,
+          "loosely_coupled": 4
+        }
+      },
+      "pattern_detection": {
+        "similarity_threshold": 0.85,
+        "minimum_occurrences": 2,
+        "pattern_types": ["usage_patterns", "dependency_chains", "architectural_layers"]
+      }
+    },
+
+    "output_sections": [
+      {
+        "name": "architecture_overview",
+        "description": "High-level system architecture based on usage patterns",
+        "template": "## Architecture Overview\n\nProvide a clear picture of the system architecture based on file relationships and usage patterns.",
+        "required": true
+      },
+      {
+        "name": "dependency_graph",
+        "description": "Key dependency relationships and chains",
+        "template": "## Dependency Graph\n\nMap out the most important dependency relationships, highlighting critical paths and potential issues.",
+        "required": true
+      },
+      {
+        "name": "core_components",
+        "description": "Most used and critical files in the system",
+        "template": "## Core Components\n\nIdentify the files that are most central to the system's operation, ordered by importance and usage.",
+        "required": true
+      },
+      {
+        "name": "integration_boundaries",
+        "description": "Key interfaces and system boundaries",
+        "template": "## Integration Boundaries\n\nDescribe the main integration points and boundaries between different parts of the system.",
+        "required": true
+      },
+      {
+        "name": "refactoring_opportunities",
+        "description": "Opportunities to improve system structure",
+        "template": "## Refactoring Opportunities\n\nBased on usage patterns and coupling, identify opportunities to improve the system architecture.",
+        "required": true
+      },
+      {
+        "name": "orphaned_code",
+        "description": "Potentially unused or disconnected code",
+        "template": "## Orphaned Code\n\nList files that appear to be unused or disconnected from the main system.",
+        "required": false
+      }
+    ]
+  },
+
+  "execution": {
+    "engine": "claude",
+    "batch_size": 1,
+    "delay_between_batches": 5,
+    "resume_on_failure": true,
+    "max_retries": 3
+  }
+}
